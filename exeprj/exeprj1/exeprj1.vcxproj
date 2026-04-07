@@ -134,9 +134,13 @@
     <ClCompile Include="..\exeprj2\moveconstructor.cpp" />
     <ClCompile Include="..\exeprj2\smartpointer1.cpp" />
     <ClCompile Include="..\exeprj2\smartpointer2.cpp" />
+    <ClCompile Include="..\exeprj2\smartpointer3.cpp" />
+    <ClCompile Include="..\exeprj2\smartpointer4.cpp" />
     <ClCompile Include="..\exeprj2\tempObj.cpp" />
     <ClCompile Include="..\exeprj2\tempObj2.cpp" />
     <ClCompile Include="..\exeprj2\tempObj3.cpp" />
+    <ClCompile Include="..\exeprj2\thread1.cpp" />
+    <ClCompile Include="..\exeprj2\thread2.cpp" />
     <ClCompile Include="..\exeprj2\vdctor.cpp" />
     <ClCompile Include="..\exeprj2\vdctor2.cpp" />
     <ClCompile Include="..\exeprj2\vdctor3.cpp" />
