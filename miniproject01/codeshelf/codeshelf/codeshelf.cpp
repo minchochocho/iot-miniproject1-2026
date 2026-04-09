@@ -1,8 +1,10 @@
-#include "CodeShelf.h"
+#include "codeshelf.h"
 
 CodeShelf::CodeShelf(QWidget *parent)
     : QMainWindow(parent)
 {
+    /* 데이터베이스 접속*/
+    initDatabase();
     /* [1] 전체 베이스 초기설정 */
     centerWidget = new QWidget(this);
     mainLayout = new QVBoxLayout(centerWidget);
@@ -13,7 +15,11 @@ CodeShelf::CodeShelf(QWidget *parent)
     /* [2] 상단바 영역 */
     setupTopBar();
 
-    /* [3] 메인 콘텐츠 영역(Stacked Widget )*/     // 배고프다얼ㄹ얼어어엉어엉
+    connect(btnSelectRoot, &QPushButton::clicked, this, &CodeShelf::onSelectRootFolder);
+
+    connect(categoryTree, &QTreeWidget::itemClicked, this, &CodeShelf::onTreeItemClicked);
+
+    /* [3] 메인 콘텐츠 영역(Stacked Widget )*/
     mainStackedWidget = new QStackedWidget();
     mainLayout->addWidget(mainStackedWidget);
 
@@ -46,10 +52,13 @@ void CodeShelf::setupTopBar() {
     QHBoxLayout* topLayout = new QHBoxLayout(topBar);
 
     QLabel* logo = new QLabel("CodeShelf");
-    logo->setStyleSheet("font-weight: bold; font-size: 18px; margin-left:10px;");
 
     btnHome = new QPushButton("홈");
     btnSearchToggle = new QPushButton("검색/관리");
+
+    logo->setStyleSheet("font-weight: bold; font-size: 18px; margin-left:10px;");
+    btnSelectRoot = new QPushButton("폴더 선택");
+    btnSelectRoot->setStyleSheet("vackground-color:#555; padding:5px;");
 
     QLabel* userInfo = new QLabel("user 1234 👤");
 
@@ -58,9 +67,226 @@ void CodeShelf::setupTopBar() {
     topLayout->addWidget(btnHome);
     topLayout->addWidget(btnSearchToggle);
     topLayout->addStretch();    // 우측 여백
+    topLayout->addWidget(btnSelectRoot);
+    topLayout->addStretch();    // 우측 여백
     topLayout->addWidget(userInfo);
 
     mainLayout->addWidget(topBar);
+}
+
+
+/* [1] 폴더 선택 */
+void CodeShelf::onSelectRootFolder() {
+    QString dirPath = QFileDialog::getExistingDirectory(this, "루트 폴더 선택", QDir::homePath());
+    
+    if (!dirPath.isEmpty()) {
+        // [2]
+        scanDirectory(dirPath);
+    }
+
+}
+
+/* [2] 파일 스캔 및 트리 업뎃 */
+void CodeShelf::scanDirectory(const QString& path) {    // path가 변하면 안되니깐
+    currentRootPath = path;
+
+    // storage_roots에 경로를 저장하고 ID를 가져옴
+    QSqlQuery query;    // 쿼리
+    // 1. 해당 경로가 있는지 확인하고 ID가져오기
+    query.prepare("SELECT id FROM storage_roots WHERE root_path = :path");
+    query.bindValue(":path", path);
+
+    if (query.exec() && query.next()) {
+        // 이미 있는 경로면 ID가져오기 아니면 시간 업뎃
+        currentRootId = query.value(0).toInt();
+        QSqlQuery up;
+        up.prepare("UPDATE storage_roots SET past_scanned = NOW() WHERE id = :id");
+        up.bindValue(":id", currentRootId);
+        up.exec();
+    }
+    else {
+        // 처음 등록하는 경로 INSERT
+        query.prepare(
+            "INSERT INTO storage_roots (root_path, past_scanned)"
+            "VALUES (:path, NOW())"
+        );
+        query.bindValue(":path", path);
+        if (query.exec()) {
+            currentRootId = query.lastInsertId().toInt();
+        }
+    }
+
+    if(currentRootId<=0){
+        qDebug() << "RootId확보 실패: " << query.lastError().text();
+        return;
+    }
+
+    // 트리 정리 및 재귀 스캔 start
+    categoryTree->clear();
+
+    // 최상위 루트 아이템 생성
+    QFileInfo rootInfo(path);
+    QTreeWidgetItem* rootItem = new QTreeWidgetItem(categoryTree);
+    rootItem->setText(0, rootInfo.fileName());
+    rootItem->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
+    rootItem->setExpanded(true);    // 일단 펼쳐두기
+
+    // ** 트랜잭션과 재귀 호출 여기서 관리!!**
+    // 트랜잭션 기반 스캔 부분
+    QSqlDatabase db = QSqlDatabase::database();
+    QDir rootDir(currentRootPath);
+    if (db.transaction()) {
+        if (scanDirRecursive(path,rootItem, rootDir)) {
+            if (!db.commit()) {
+                qDebug() << "커밋 실패!" << db.lastError().text();
+                categoryTree->clear();  // UI정리
+            }
+        }
+        else {
+            db.rollback();
+            categoryTree->clear();  // UI정리
+        }
+    }
+    else {
+        qDebug() << "트랜잭션 시작 실패!";
+    }
+    QApplication::restoreOverrideCursor();
+}
+
+
+// 재귀적으로 폴더 훑기
+bool CodeShelf::scanDirRecursive(const QString& path, QTreeWidgetItem* parentItem, const QDir& rootDir) {
+    QDir directory(path);
+
+    // 1. 파일 및 폴더 리스트 가져오기 (숨김파일 제외, 이름순 정렬)
+    QFileInfoList entries = directory.entryInfoList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
+
+    //QApplication::setOverrideCursor(Qt::WaitCursor);
+    for (const QFileInfo& info : entries) {
+        QString relPath = rootDir.relativeFilePath(info.absoluteFilePath());
+
+        if (info.isDir()) {
+            // [폴더인 경우] 아이콘 설정 후 재귀 호출
+            QTreeWidgetItem* item = new QTreeWidgetItem(parentItem);
+            item->setText(0, info.fileName());
+            item->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
+            // scanDirRecursive(info.absoluteFilePath(), item);
+            if (!scanDirRecursive(info.absoluteFilePath(), item, rootDir)) return false;
+        }
+        else {
+            // [파일인 경우] 확장자 필터링 (C++, SQL, Python 등)
+            QString suffix = info.suffix().toLower();
+            if (suffix == "cpp" || suffix == "h" || suffix == "sql" || suffix == "py") {
+                if (!insertFileRecord(info, relPath)) {
+                    return false;   // 하나라도 실패하면 전체 롤백 해야하니깐
+                }
+
+                // 트리 UI에 추가(왼쪽편)
+                QTreeWidgetItem* item = new QTreeWidgetItem(parentItem);
+                item->setText(0, info.fileName());
+                item->setIcon(0, style()->standardIcon(QStyle::SP_FileIcon));
+                item->setData(0, Qt::UserRole, relPath); // 실제 경로 저장
+            }
+            
+        }
+    }
+    return true;
+}
+
+// 파일 내용읽어서 넣음
+bool CodeShelf::insertFileRecord(const QFileInfo& info, const QString relPath) {
+    // [1] DB에서 해당 파일의 마지막 수정시간을 가져옴
+    QSqlQuery checkQuery;
+    checkQuery.prepare("SELECT last_modified FROM codes WHERE root_id = :rid AND rel_path = :path");
+    checkQuery.bindValue(":rid", currentRootId);
+    checkQuery.bindValue(":path", relPath);
+
+    if (checkQuery.exec() && checkQuery.next()) {
+        QString dbTime = checkQuery.value(0).toString();
+        QString fileTime = info.lastModified().toString("yyyy-MM-dd HH:mm:ss");
+
+        // [2] 만약 날짜가 같다면 수정XX -> 종료
+        if (dbTime == fileTime) {
+            return true;
+        }
+    }
+
+    // [3] 만약 날짜가 다르거나 데이터가 없다면? -> 수정, 삽입
+    // 핵심 파일 내용 읽기
+    QFile file(info.absoluteFilePath());
+    QString fileContent = "";
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&file);
+        in.setEncoding(QStringConverter::Utf8);
+
+        fileContent = in.readAll(); // 다 읽어
+        file.close();
+    }
+
+    // SQL(INSERT) 실행
+    QSqlQuery q;
+    q.prepare(
+        "INSERT INTO codes(root_id, rel_path, file_name, extension, file_size, content, last_modified)"
+        "VALUES (:root_id, :rel_path, :name, :ext, :size, :content, :modified)"
+        "ON DUPLICATE KEY UPDATE "  // 중복될때 로직
+        "file_size = :size, content = :content, last_modified = :modified"
+    );
+
+    q.bindValue(":root_id", currentRootId);
+    q.bindValue(":rel_path",relPath);
+    q.bindValue(":name", info.fileName());
+    q.bindValue(":ext", info.suffix().toLower());   // suffix로 확장자 추출 및 toLoser로 소문자로 통일
+    q.bindValue(":size", info.size()); 
+    q.bindValue(":content", fileContent);   // 아까 읽었던 파일 내용
+    q.bindValue(":modified", info.lastModified().toString("yyyy-MM-dd HH:mm:ss"));  // 마지막 수정시간을 가져와서 tostring의 형태로 바꿈
+
+    if (!q.exec()) {
+        // 현재 처리중인 파일이름에서 SQL의 실행 실패(q.lastError) 이유를 반환 해줌 
+        qDebug() << "DB 저장 에러 (" << info.fileName() << "): " << q.lastError().text(); // 마지막으로 일어난 에러를 보여줌
+        return false;
+    }
+    return true;
+}
+
+
+
+void CodeShelf :: onTreeItemClicked(QTreeWidgetItem* item, int column) {
+    // 상대경로가 나옴
+    QString relPath = item->data(0, Qt::UserRole).toString();   // (1) 꺼내기
+    if (relPath.isEmpty()) return;// 경로 is Empty == 폴더, -> 무시
+
+    // 루트경로를 합쳐서 열어야댐
+    // "C:/Projects" + "/" + "main.cpp" 이런 느낌
+    QDir rootDir(currentRootPath);  // (2) 기준점
+    QString fullPath = rootDir.filePath(relPath);   // (3) 합치기
+
+    QFile file(fullPath);
+
+    lblComment->setText("Full Path: " + fullPath);
+
+    // 파일 열어
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {    // readonly, 텍스트모드
+        qDebug() << "파일을 열 수 없습니다." << file.errorString();
+        return;
+    }
+
+    // 텍스트 스트림으로 내용 읽기
+    QTextStream in(&file);
+    in.setEncoding(QStringConverter::Utf8); // 한글깨짐을 방지해주자
+    QString content = in.readAll();
+
+    // 미리보기 창 데이터 세팅
+    codePreview->setPlainText(content);
+
+    // 상단 정보 레이블을 업뎃
+    // 이건 일단 나중에 진행
+    
+    QFileInfo fileInfo(fullPath);
+    lblPName->setText("File : " + fileInfo.fileName());
+    lblComment->setText("// Path : " + fileInfo.absolutePath());
+
+    file.close();
+    
 }
 
 /* [page 0] 대쉬보드 홈 */
@@ -107,7 +333,7 @@ void CodeShelf::setupManagementPage() {
     infoWidget->setStyleSheet("background-color:white");
 
     lblPName = new QLabel("Project : Code-1231");
-    lblPName->setStyleSheet("font-size:18px; fonr-weight:bold");
+    lblPName->setStyleSheet("font-size:18px; font-weight:bold");
 
     lblComment = new QLabel("// 파일입출력 기본예제");
     lblComment->setStyleSheet("color:gray");
@@ -206,13 +432,35 @@ bool CodeShelf::eventFilter(QObject* obj, QEvent* event) {
         }
     }
     return QMainWindow::eventFilter(obj, event);
-}
+} 
 
 void CodeShelf::showHome() {
 }
 
 void CodeShelf::toggleSearchMode() {
     mainStackedWidget->setCurrentIndex(1);
+}
+
+void CodeShelf::initDatabase() {
+    // 현재 로드 가능한 드라이버 목록을 출력해서 확인 (디버깅용)
+    qDebug() << "Available Drivers:" << QSqlDatabase::drivers();
+
+    // MySQL 드라이버를 로드
+    QSqlDatabase db = QSqlDatabase::addDatabase("QMYSQL");
+
+    // 접속 정보
+    db.setHostName("127.0.0.1");
+    db.setDatabaseName("CODESHELF"); // MySQL에서 생성한 DB 이름과 일치해야 함
+    db.setUserName("shl_user");     // 생성한 계정명
+    db.setPassword("rcg6510@");
+
+    // 연결 확인
+    if (!db.open()) {
+        qDebug() << "DB 연결 실패 사유: " << db.lastError().text();
+    }
+    else {
+        qDebug() << "DB 연결 성공!";
+    }
 }
 
 CodeShelf::~CodeShelf()
