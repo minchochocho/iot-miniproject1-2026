@@ -40,7 +40,36 @@ CREATE INDEX idx_rel_path ON codes(rel_path);
 -- 확장자별 필터링 속도 향상
 CREATE INDEX idx_extension ON codes(extension);
 
+-- codes 테이블에 내용 저장 컬럼 추가
 ALTER TABLE codes ADD COLUMN content LONGTEXT;
+
+-- 같은 루트 안에서 상대경로가 중복되는 것을 방지
+ALTER TABLE codes ADD UNIQUE idx_root_rel (root_id, rel_path);
 
 SELECT * FROM codes;
 
+UPDATE storage_roots (root_path, past_scanned) VALUES (:PATH, now())
+
+ALTER TABLE codes ADD COLUMN tags VARCHAR(255) DEFAULT '';
+
+-- 외래키 제약 조건 때문에 삭제가 안 될 경우를 대비해 체크 해제 후 실행
+SET FOREIGN_KEY_CHECKS = 0;
+
+TRUNCATE TABLE codes;
+TRUNCATE TABLE storage_roots;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 서버 설정 최적화
+-- 현재 설정 확인
+SHOW VARIABLES LIKE 'innodb_flush_log_at_trx_commit';
+
+-- 임시 변경 (서버 재시작 전까지 유지)
+SET GLOBAL innodb_flush_log_at_trx_commit = 2;
+
+-- 대용량 패킷 허용
+SET GLOBAL max_allowed_packet = 67108864; -- 64MB
+
+SELECT DISTINCT upper(extension) FROM codes;
+
+SELECT file_name, last_modified, tags FROM codes WHERE upper(extention) = :ext

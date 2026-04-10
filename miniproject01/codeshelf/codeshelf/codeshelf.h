@@ -22,6 +22,10 @@
 #include <QSqlQuery>
 #include <QDateTime>   // 시간 표시용
 #include <QMessageBox> // 알림용
+#include <QElapsedTimer>
+#include <QScrollArea>   // 스크롤 기능 담당
+#include <QWidget>
+#include"flowlayout.h"
 
 class CodeShelf : public QMainWindow
 {
@@ -46,7 +50,6 @@ protected:
 private:
     void initDatabase();
     void setupTopBar();
-    void selectRootDirectory();
     void scanDirectory(const QString& path);
     void setupDashboard();
     void setupManagementPage();
@@ -69,22 +72,34 @@ private:
     QString currentRootPath;
     int currentRootId;
     // 재귀적으로 폴더 훑기
-    bool scanDirRecursive(const QString& path, QTreeWidgetItem* parentItem, const QDir& rootDir);  // 기준 루트폴더);
+    bool scanDirRecursive(const QString& path, QTreeWidgetItem* parentItem, const QDir& rootDir, const QHash<QString, QDateTime>& DbFilemap);  // 기준 루트폴더);
     // insert데이터 저장
-    bool insertFileRecord(const QFileInfo& info, const QString relPath);
+    bool insertFileRecord(const QFileInfo& info, const QString relPath, const QHash<QString, QDateTime>& DbFilemap);
     QFileInfo rootInfo;
 
     // 3분할 영역
     /* 3분할 크기 조절용 경계선 */
     QSplitter* mainSplitter;
     /* 카테고리 목록 */
+    FlowLayout* flowlayout;
     QTreeWidget* categoryTree;
+    QListWidget* tagWidget;
+    QWidget* leftWidget;
+    QVBoxLayout* leftLayout;
+
+
+    void loadTagsFromDb();
+    void filterByExt(const QString& ext);
+
     /* 중앙 코드제목 리스트 */
     QTableWidget* snipperList;
+    QVBoxLayout* centerLayout;
+    void clearCenterLayout();
 
     QLabel* lblPName;
     QLabel* lblComment;
     /* 실제 코드 창 */
     QTextEdit* codePreview;
 };
+
 

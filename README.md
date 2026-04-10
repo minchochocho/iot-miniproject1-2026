@@ -221,9 +221,16 @@ Qt Maintenance Tool을 통해 아래 구성 요소가 설치되어 있는지 확
 
 ### 3. 사용자 상호작용
 
-일단 집에서 해야되는거
-하아.....
+
 ![alt text](image-2.png)
-ui는 뭐 그렇다 치고 지금 중요한게
-계속 너무 과하게 읽는거란 말이지
-음 집가ㅓ 수정좀 해야댈듯
+
+
+QHash 를 사용해서 dbfile맵을 만듦
+
+태그기능은 처음 폴더 등록시랑 변경된 파일일때만 수행하도록 로직을 짜기
+
+태그 추출
+
+Qt의 플로우 레이아웃 예제0
+https://doc.qt.io/qt-6/qtwidgets-layouts-flowlayout-example.html
+
