@@ -25,6 +25,9 @@
 #include <QElapsedTimer>
 #include <QScrollArea>   // 스크롤 기능 담당
 #include <QWidget>
+#include <QSettings>
+#include <QTimer>
+#include <QMouseEvent>
 #include"flowlayout.h"
 
 class CodeShelf : public QMainWindow
@@ -42,18 +45,24 @@ private slots:
     void onSelectRootFolder();  // 슬롯 함수
     void onTreeItemClicked(QTreeWidgetItem* item, int column);
 
+    QString formatDate(const QString& rawDate);
 
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    QIcon dirIcon;
+    QIcon fileIcon;
+
+    void initApp();
+    void onDirSelected(const QString& path);
     void initDatabase();
     void setupTopBar();
     void scanDirectory(const QString& path);
     void setupDashboard();
     void setupManagementPage();
-    void addItem(QVBoxLayout* targetLayout, QString name, QString date, QString tag);
+    void addItem(QVBoxLayout* targetLayout, QString name, QString date, QString tag, QString fullPath);
     // UI 구성요소
     /* 모든 UI요소가 담기는 그릇 */
     QWidget* centerWidget;
@@ -74,7 +83,7 @@ private:
     // 재귀적으로 폴더 훑기
     bool scanDirRecursive(const QString& path, QTreeWidgetItem* parentItem, const QDir& rootDir, const QHash<QString, QDateTime>& DbFilemap);  // 기준 루트폴더);
     // insert데이터 저장
-    bool insertFileRecord(const QFileInfo& info, const QString relPath, const QHash<QString, QDateTime>& DbFilemap);
+    bool insertFileRecord(const QFileInfo& info, const QString absolutePath, const QHash<QString, QDateTime>& DbFilemap);
     QFileInfo rootInfo;
 
     // 3분할 영역
@@ -86,20 +95,39 @@ private:
     QListWidget* tagWidget;
     QWidget* leftWidget;
     QVBoxLayout* leftLayout;
+    QHBoxLayout* paginationBar;
 
+    void onSearchTextChanged(const QString& text);
+    void filterBySearch(const QString& ext, const QString& keyword);
+    // 페이지 설정
+    QString currentSelectedExt; // 현재 선택된 확장자 저장
+    int currentPage = 0;    // 현재 페이지 번호
+    const int pageSize = 8;    // 한 페이지당 보여줄 개수
+
+    QString elidePath(const QString& path, int maxLength);
+
+    int currentGroup = 0;
+    const int pageGroupSize = 6;
+
+    void updatePagination(const QString& ext, const QString& keyword = "");
 
     void loadTagsFromDb();
-    void filterByExt(const QString& ext);
+    void filterByExt(const QString& ext, int offset);
+
+    void clearPagination();
 
     /* 중앙 코드제목 리스트 */
     QTableWidget* snipperList;
+    QVBoxLayout* centerMainLayout;
     QVBoxLayout* centerLayout;
     void clearCenterLayout();
+
+    void showDetail(const QString& name, const QString& path);
 
     QLabel* lblPName;
     QLabel* lblComment;
     /* 실제 코드 창 */
     QTextEdit* codePreview;
+
+    void applyEditorTheme();
 };
-
-

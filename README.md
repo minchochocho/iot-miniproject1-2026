@@ -231,6 +231,97 @@ QHash 를 사용해서 dbfile맵을 만듦
 
 태그 추출
 
-Qt의 플로우 레이아웃 예제0
+Qt의 플로우 레이아웃 예제
 https://doc.qt.io/qt-6/qtwidgets-layouts-flowlayout-example.html
+
+## 사용한 sql 구문
+
+### 파일 스캔 및 트리 업데이트(scanDirectory)
+```sql
+-- 해당 경로가 있는지 확인 후 ID 가져오기
+SELECT id FROM storage_roots WHERE root_path = :path
+-- 이미 있는 경로면 시간 업데이트
+UPDATE storage_roots SET past_scanned = NOW() WHERE id = :id
+-- 처음 등록 하는 경로면 INSERT
+INSERT INTO storage_roots (root_path, past_scanned)
+VALUES (:path, NOW())
+```
+- `:path` - path
+- `:id` - currentRootId
+
+- QHash<QString, QDateTime> dbFileMap;
+- 해당 파일이 언제 수정됐는지 빠르게 찾기위한 해쉬
+```sql
+SELECT rel_path, last_modified FROM codes WHERE root_id = :rid
+```
+- codes 테이블에서 rel_path, last_modified를 가져옴
+
+### 파일 내용을 읽어서 넣기(insertFileRecord)
+```sql
+INSERT INTO codes(root_id, rel_path, file_name, extension, file_size, content, last_modified
+VALUES (:root_id, :rel_path, :name, :ext, :size, :content, :modified)
+ON DUPLICATE KEY UPDATE -- 중복 로직
+file_size = :size, content = :content, last_modified = :modified
+```
+- :root_id - currentRootId
+- :rel_path - relPath
+- :name - info.fileName()
+- :ext - info.suffix().toLower()
+- :size - info.size()
+- :content - fileContent
+- :modified - info.lastModified().toString("yyyy-MM-dd HH:mm:ss")
+
+### 칩생성(loadTagsFromDb)
+```sql
+-- DB연결 재확인 및 쿼리 실행
+SELECT DISTINCT upper(extension) FROM codes WHERE root_id = :rid;
+```
+
+### 해당 확장자를 가진 데이터 셀렉트
+```sql
+SELECT file_name, last_modified, tags FROM codes 
+ WHERE root_id = :rid AND upper(extension) = :ext
+ ORDER BY last_modified DESC 
+ LIMIT :limit OFFSET :offset
+```
+`:rid` - currentRootId
+`:ext` - ext.toUpper()
+`:limit` - pageSize
+`:offset` - offset
+
+### updatePagination
+해당 확장자의 전체 아이템 개수 가져오기
+```sql
+SELECT COUNT(*) FROM codes WHERE root_id = :rid
+-- !ext.isEmpty()
+AND UPPER(extension) = UPPER(:ext)
+-- !keyword.isEmpty()
+AND UPPER(file_name) LIKE UPPER(:keyword)
+```
+if (!ext.isEmpty()) {
+    query.bindValue(":ext", ext.toUpper());
+}
+
+if (!keyword.isEmpty()) {
+    query.bindValue(":keyword", "%" + keyword + "%");
+}
+
+### filterBySearch
+```sql
+SELECT file_name, rel_path, extension FROM codes
+WHERE root_id = :rid 
+-- !ext.isEmpty()
+  AND UPPER(extension) = UPPER(:ext)
+-- !keyword.trimmed().isEmpty()
+  AND UPPER(file_name) LIKE UPPER(:keyword)
+
+LIMIT :limit OFFSET :offset 
+```
+if (!ext.isEmpty()) {
+    q.bindValue(":ext", ext.toUpper());
+}
+
+if (!keyword.trimmed().isEmpty()) {
+    q.bindValue(":keyword", "%" + keyword + "%");
+}
 
