@@ -28,7 +28,9 @@
 #include <QSettings>
 #include <QTimer>
 #include <QMouseEvent>
+#include <QComboBox>
 #include"flowlayout.h"
+#include"CodeHighlighter.h"
 
 class CodeShelf : public QMainWindow
 {
@@ -52,6 +54,7 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    CodeHighlighter* highlighter;
     QIcon dirIcon;
     QIcon fileIcon;
 
@@ -97,6 +100,7 @@ private:
     QVBoxLayout* leftLayout;
     QHBoxLayout* paginationBar;
 
+
     void onSearchTextChanged(const QString& text);
     void filterBySearch(const QString& ext, const QString& keyword);
     // 페이지 설정
@@ -105,6 +109,9 @@ private:
     const int pageSize = 8;    // 한 페이지당 보여줄 개수
 
     QString elidePath(const QString& path, int maxLength);
+    QHBoxLayout* searchLayout;
+    QComboBox* searchFilterCombo;
+    void setupSearchUI();
 
     int currentGroup = 0;
     const int pageGroupSize = 6;

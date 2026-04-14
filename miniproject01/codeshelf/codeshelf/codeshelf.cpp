@@ -647,11 +647,17 @@ void CodeShelf::setupManagementPage() {
     // center : 리스트, 검색창
     QWidget* centerWidget = new QWidget();
     centerMainLayout = new QVBoxLayout(centerWidget);
+    
 
     // 검색 창 설정
     QLineEdit* searchEdit = new QLineEdit();
     searchEdit->setPlaceholderText("검색어를 입력하세요...");
-    centerMainLayout->addWidget(searchEdit);    // 검색창 맨 위 고정
+    searchLayout = new QHBoxLayout();
+    setupSearchUI();
+    searchLayout->addWidget(searchFilterCombo);
+    searchLayout->addWidget(searchEdit);
+   
+    centerMainLayout->addLayout(searchLayout);    // 검색창 맨 위 고정
     connect(searchEdit, &QLineEdit::textChanged, this, &CodeShelf::onSearchTextChanged);
 
     // 중앙 스크롤 영역 생성
@@ -705,25 +711,20 @@ void CodeShelf::setupManagementPage() {
     infoLayout->addWidget(lblComment);
     infoLayout->addWidget(tagBar);
 
-    // 테스트용 칩 추가
-    //QStringList testTags = { "#CPP", "#SQL", "#PYTrHON", "#H", "#QT6", "#VS2022" };
-    //for (const QString& tag : testTags) {
-    //    QPushButton* chip = new QPushButton(tag);
-    //    chip->setStyleSheet(
-    //        "QPushButton{"
-    //        "   background-color: #ffffff; color: #01579b; border: 1px solid #b3e5fc;"
-    //        "   border-radius: 12px; padding: 4px 10px; font-size: 11px; "
-    //        "}"
-    //        "QPushButton:hover { background-color: #b3e5fc; }"
-    //    );
-    //    flowlayout->addWidget(chip);   
-    //}
-
     loadTagsFromDb();
 
     // right-B 아래쪽 위젯(코드 영역)
     codePreview = new QTextEdit();
+    codePreview->setStyleSheet(
+        "QTextEdit {"
+        "   background-color: #1e1e1e; color: #d4d4d4;"
+        "   font-family: 'Consolas', 'Monospace';"
+        "   font-size: 10pt; border: none; padding: 11px;"
+        "}"
+    );
+    new CodeHighlighter(codePreview->document());
     codePreview->setReadOnly(true); // 수정불가하게
+    highlighter = new CodeHighlighter(codePreview->document());
     QPushButton* btnCopy = new QPushButton("클립보드 복사");
 
     // right 합체
@@ -812,6 +813,10 @@ void CodeShelf::addItem(QVBoxLayout* targetLayout, QString name, QString date, Q
 QString CodeShelf::formatDate(const QString& rawDate) {
     if (rawDate.contains(" ")) return rawDate.split(" ")[0];
     return rawDate;
+}
+
+void CodeShelf::onSearchRequested() {
+
 }
 
 void CodeShelf::onSearchTextChanged(const QString& text) {
@@ -910,6 +915,13 @@ void CodeShelf::showDetail(const QString& name, const QString& path) {
     lblPName->setText("File : " + name);
     lblComment->setText("// Location" + path);
 
+    // 파일 확장자 추출
+    QFileInfo fileInfo(path);
+    QString extension = fileInfo.suffix().toLower();
+
+    // 하이라이터 언어 변경
+    highlighter->setLanguage(extension);
+
     QFile file(path);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&file);
@@ -958,6 +970,15 @@ QString CodeShelf::elidePath(const QString& path, int maxLength) {
     if (path.length() <= maxLength) return path;
 
     return "..." + path.right(maxLength);
+}
+
+void CodeShelf::setupSearchUI() {
+    searchFilterCombo = new QComboBox();
+    searchFilterCombo->addItem("제목 + 내용", "all");
+    searchFilterCombo->addItem("제목", "title");
+
+    searchFilterCombo->setStyleSheet("padding:5px; background-color: #3c3c3c; color: white; ");
+
 }
 
 void CodeShelf::initDatabase() {
