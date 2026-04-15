@@ -33,7 +33,6 @@ CREATE TABLE tags (
     id INT PRIMARY KEY AUTO_INCREMENT,
     tag_name VARCHAR(32) NOT NULL UNIQUE
 );
-
 -- 5. 코드와 태그의 연결 (다대다 관계 해소)
 CREATE TABLE code_tags (
     code_id INT,
@@ -46,3 +45,15 @@ CREATE TABLE code_tags (
 -- 6. 성능 향상을 위한 인덱스
 CREATE INDEX idx_extension ON codes(extension);
 CREATE INDEX idx_file_name ON codes(file_name);
+
+-- codes 테이블의 filename과 content 컬럼에 FULLTEXT 인덱스 추가
+ALTER TABLE codes ADD FULLTEXT INDEX ft_index (file_name, content) WITH PARSER ngram;
+-- 테이블 내용 초기화
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE codes;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- filepath 혼자가 아니라, root_id와 filepath의 조합이 유일해야 함
+ALTER TABLE codes ADD UNIQUE (root_id, filepath);
+
+SELECT * FROM codes;

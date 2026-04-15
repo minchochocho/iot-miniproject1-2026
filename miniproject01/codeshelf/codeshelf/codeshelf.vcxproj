@@ -97,10 +97,12 @@
     <QtMoc Include="codeshelf.h" />
     <ClCompile Include="CodeHighlighter.cpp" />
     <ClCompile Include="codeshelf.cpp" />
+    <ClCompile Include="DatabaseManager.cpp" />
     <ClCompile Include="flowlayout.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DatabaseManager.h" />
     <ClInclude Include="flowlayout.h" />
     <QtMoc Include="CodeHighlighter.h" />
   </ItemGroup>

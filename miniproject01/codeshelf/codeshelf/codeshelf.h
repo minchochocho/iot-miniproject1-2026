@@ -29,8 +29,11 @@
 #include <QTimer>
 #include <QMouseEvent>
 #include <QComboBox>
+#include <QButtonGroup>
+#include <QAbstractButton>
 #include"flowlayout.h"
 #include"CodeHighlighter.h"
+#include"DatabaseManager.h"
 
 class CodeShelf : public QMainWindow
 {
@@ -57,7 +60,7 @@ private:
     CodeHighlighter* highlighter;
     QIcon dirIcon;
     QIcon fileIcon;
-
+    QButtonGroup* tagGroup;
     void initApp();
     void onDirSelected(const QString& path);
     void initDatabase();
@@ -102,21 +105,22 @@ private:
 
 
     void onSearchTextChanged(const QString& text);
-    void filterBySearch(const QString& ext, const QString& keyword);
+    void filterBySearch(const QString& ext ="", const QString& keyword = "", const QString& mode = "title");
     // 페이지 설정
     QString currentSelectedExt; // 현재 선택된 확장자 저장
     int currentPage = 0;    // 현재 페이지 번호
     const int pageSize = 8;    // 한 페이지당 보여줄 개수
 
-    QString elidePath(const QString& path, int maxLength);
     QHBoxLayout* searchLayout;
     QComboBox* searchFilterCombo;
     void setupSearchUI();
+    void onSearchRequested();
+    QLineEdit* searchEdit;
 
     int currentGroup = 0;
     const int pageGroupSize = 6;
 
-    void updatePagination(const QString& ext, const QString& keyword = "");
+    void updatePagination(const QString& ext = "", const QString& keyword = "", const QString& mode="title");
 
     void loadTagsFromDb();
     void filterByExt(const QString& ext, int offset);
@@ -137,4 +141,7 @@ private:
     QTextEdit* codePreview;
 
     void applyEditorTheme();
+    void onSearchExecuted();
+    QString currentFilePath;
+    void allTagBtn();
 };
