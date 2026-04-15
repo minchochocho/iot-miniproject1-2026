@@ -58,8 +58,8 @@ void CodeShelf::setupTopBar() {
 
     QLabel* logo = new QLabel("CodeShelf");
 
-    btnHome = new QPushButton("홈");
-    btnSearchToggle = new QPushButton("검색/관리");
+    //btnHome = new QPushButton("홈");
+    //btnSearchToggle = new QPushButton("검색/관리");
 
     logo->setStyleSheet("font-weight: bold; font-size: 18px; margin-left:10px;");
     btnSelectRoot = new QPushButton("폴더 선택");
@@ -348,24 +348,16 @@ void CodeShelf::allTagBtn() {
 
 void CodeShelf::updatePagination(const QString& ext, const QString& keyword, const QString& mode) {
     // (1) 기존 레이아웃 비우기
-    QLayoutItem* child;
-    while ((child = paginationBar->takeAt(0)) != nullptr) {
-        if (child->widget())  delete child->widget();
-        delete child;
-    }
+    clearPagination();
 
     // (2) 해당 확장자의 전체 아이템 개수 가져오기
 
-    SearchOptions opt;
-    opt.rootId = currentRootId;
-    opt.extension = ext;
-    opt.keyword = keyword;
-    opt.searchMode = mode;
-
-    int totalCnt = DatabaseManager::instance().getFileCount(opt);
+    int totalCnt = cachedResults.size();
 
     if (totalCnt <= 0) return;
+
     int totalPages = (totalCnt + pageSize - 1) / pageSize;
+
     // (3) 페이지 그룹 계산
     int startPage = (currentPage / pageGroupSize) * pageGroupSize;
     int endPage = qMin(startPage + pageGroupSize, totalPages);
@@ -374,28 +366,31 @@ void CodeShelf::updatePagination(const QString& ext, const QString& keyword, con
     QPushButton* prevBtn = new QPushButton("<");
     prevBtn->setFixedSize(30, 30);
     prevBtn->setEnabled(startPage > 0);
-    connect(prevBtn, &QPushButton::clicked, this, [=]() {
-        currentPage = startPage - 1;    // 이전 그룹의 마지막 페이지로 이동
-        filterBySearch(ext, keyword, mode);
-        updatePagination(ext, keyword, mode);
-        });
-    paginationBar->addWidget(prevBtn);
-    // (5) [숫자] 페이지 버튼 생성
 
+    connect(prevBtn, &QPushButton::clicked, this, [=]() {
+        currentPage = qMax(0,startPage - pageGroupSize);    // 이전 그룹의 마지막 페이지로 이동
+        renderPage();
+        });
+
+    paginationBar->addWidget(prevBtn);
+
+    // (5) [숫자] 페이지 버튼 생성
+    QButtonGroup* pageGroup = new QButtonGroup(this);
+    pageGroup->setExclusive(true);
     for (int i = startPage; i < endPage; i++) {
         QPushButton* pageBtn = new QPushButton(QString::number(i + 1)); // 시작이 0이라
         pageBtn->setFixedSize(30, 30);
         pageBtn->setCheckable(true);
 
-        // 현재 페이지 버튼 강조
-        if (i == currentPage) {
-            pageBtn->setCheckable(true);
+        
+        pageGroup->addButton(pageBtn, i);
+        if (i==currentPage) {
+            pageBtn->setChecked(true);
         }
+
         connect(pageBtn, &QPushButton::clicked, this, [=]() {
             currentPage = i;
-            filterBySearch(ext, keyword, mode);
-            // filterByExt(ext, i * pageSize); // 해당 페이지 데이터 로드
-            updatePagination(ext, keyword, mode);
+            renderPage();
             });
 
         paginationBar->addWidget(pageBtn);
@@ -407,8 +402,7 @@ void CodeShelf::updatePagination(const QString& ext, const QString& keyword, con
     nextBtn->setEnabled(endPage < totalPages);
     connect(nextBtn, &QPushButton::clicked, this, [=]() {
         currentPage = endPage;    // 이전 그룹의 마지막 페이지로 이동
-        filterBySearch(ext, keyword, mode);
-        updatePagination(ext, keyword, mode);
+        renderPage();
         });
     paginationBar->addWidget(nextBtn);
 }
@@ -602,6 +596,7 @@ void CodeShelf::setupManagementPage() {
     codePreview->setReadOnly(true); // 수정불가하게
     highlighter = new CodeHighlighter(codePreview->document());
     QPushButton* btnCopy = new QPushButton("클립보드 복사");
+    QPushButton* btnDir = new QPushButton("클립보드 복사");
 
     // right 합체
     rightMainLayout->addWidget(infoWidget);
@@ -699,38 +694,55 @@ void CodeShelf::onSearchTextChanged(const QString& text) {
     currentPage = 0;
 
     // 필터링 함수 호출(검색어 포함)
-    filterBySearch(currentSelectedExt, text, mode);
+    filterBySearch(currentSelectedExt, text, searchFilterCombo->currentData().toString());
 
 }
 void CodeShelf::filterBySearch(const QString& ext, const QString& keyword, const QString& mode) {
     clearCenterLayout();
 
-    // (1) 매니저에게 줄 내용 채우기
+    currentSearch.rootId = currentRootId;
+    currentSearch.extension = ext;
+    currentSearch.keyword = keyword;
+    currentSearch.mode = mode;
+
+    currentPage = 0;
+
     SearchOptions opt;
     opt.rootId = currentRootId;
     opt.extension = ext;
     opt.keyword = keyword;
     opt.searchMode = mode;
-    opt.limit = pageSize;
-    opt.offset = currentPage * pageSize;
-    qDebug() << "키워드" << keyword;
+
+    opt.limit = 100000;
+    opt.offset = 0;
 
     // (2) 매니저에게 데이터 요청
     QList<FileItem> files = DatabaseManager::instance().fetchFiles(opt);
+    cachedResults= DatabaseManager::instance().fetchFiles(opt);
+    renderPage();
 
-    // (3) 받은 데이터로 UI 그리기
-    for (const auto& file : files) {
+    updatePagination(ext, keyword, mode);
+}
+
+void CodeShelf::renderPage() {
+    clearCenterLayout();
+
+    int start = currentPage * pageSize;
+    int end = qMin(start + pageSize, (int)cachedResults.size());
+
+    for (int i = start; i < end; i++) {
+        const auto& file = cachedResults[i];
         addItem(centerLayout,
             file.name,
             file.lastModified.toString("yyyy-MM-dd"),
             file.extension,
             file.path
         );
-        qDebug() << "파일 이름" << file.name;
     }
 
     centerLayout->addStretch(1);
-    updatePagination(ext, keyword, mode);
+
+    updatePagination("", "", "");
 }
 
 // 클릭 감지(센터 아이템)
@@ -820,8 +832,8 @@ void CodeShelf::toggleSearchMode() {
 
 void CodeShelf::setupSearchUI() {
     searchFilterCombo = new QComboBox();
-    searchFilterCombo->addItem("제목 + 내용", "all");
     searchFilterCombo->addItem("제목", "title");
+    searchFilterCombo->addItem("제목 + 내용", "all");
     searchFilterCombo->setStyleSheet("padding:5px; background-color: #3c3c3c; color: white; ");
 
     searchEdit = new QLineEdit();
@@ -851,7 +863,7 @@ void CodeShelf::setupSearchUI() {
         onSearchTextChanged(searchEdit->text());
     });
     connect(searchBtn, &QPushButton::clicked, this, [=]() {
-        onSearchTextChanged(searchEdit->text());
+        filterBySearch (currentSelectedExt, searchEdit->text(), currentSearch.mode);
     });
 }
 
@@ -870,6 +882,7 @@ void CodeShelf::onSearchExecuted() {
     // 결과 UI 갱신
     
 }
+
 
 
 CodeShelf::~CodeShelf()

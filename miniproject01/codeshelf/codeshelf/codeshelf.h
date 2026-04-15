@@ -31,9 +31,17 @@
 #include <QComboBox>
 #include <QButtonGroup>
 #include <QAbstractButton>
+#include <QtGlobal>
 #include"flowlayout.h"
 #include"CodeHighlighter.h"
 #include"DatabaseManager.h"
+
+struct SearchState {
+    int rootId;
+    QString extension;
+    QString keyword;
+    QString mode;
+};
 
 class CodeShelf : public QMainWindow
 {
@@ -144,4 +152,9 @@ private:
     void onSearchExecuted();
     QString currentFilePath;
     void allTagBtn();
+
+    SearchState currentSearch;
+    QList<FileItem> cachedResults;
+
+    void renderPage();
 };
