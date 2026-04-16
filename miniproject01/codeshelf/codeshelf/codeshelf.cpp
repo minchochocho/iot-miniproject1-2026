@@ -18,12 +18,12 @@ CodeShelf::CodeShelf(QWidget *parent)
     /* [2] 상단바 영역 */
     setupTopBar();
 
-    connect(btnSelectRoot, &QPushButton::clicked, this, &CodeShelf::onSelectRootFolder);
 
 
     /* [3] 메인 콘텐츠 영역(Stacked Widget )*/
     mainStackedWidget = new QStackedWidget();
     mainLayout->addWidget(mainStackedWidget);
+    mainStackedWidget->setStyleSheet("background-color:#333");
 
     // [page 0] 홈 대시보드(임시로)~~
     setupDashboard();
@@ -39,11 +39,13 @@ CodeShelf::CodeShelf(QWidget *parent)
     mainStackedWidget->addWidget(mainSplitter);
 
     // [5] 시그널/슬롯 연결
+    connect(btnSelectRoot, &QPushButton::clicked, this, &CodeShelf::onSelectRootFolder);
     connect(btnHome, &QPushButton::clicked, this, &CodeShelf::showHome);
     connect(btnSearchToggle, &QPushButton::clicked, this, &CodeShelf::toggleSearchMode);
     connect(categoryTree, &QTreeWidget::itemClicked, this, &CodeShelf::onTreeItemClicked);
 
     resize(1200, 800);
+
 
     QTimer::singleShot(100, this, &CodeShelf::initApp);
 }
@@ -62,8 +64,6 @@ void CodeShelf::setupTopBar() {
     //btnSearchToggle = new QPushButton("검색/관리");
 
     logo->setStyleSheet("font-weight: bold; font-size: 18px; margin-left:10px;");
-    btnSelectRoot = new QPushButton("폴더 선택");
-    btnSelectRoot->setStyleSheet("background-color:#555; padding:5px;");
 
     QLabel* userInfo = new QLabel("user 1234 👤");
 
@@ -71,8 +71,6 @@ void CodeShelf::setupTopBar() {
     topLayout->addStretch();    // 중간 여백
     topLayout->addWidget(btnHome);
     topLayout->addWidget(btnSearchToggle);
-    topLayout->addStretch();    // 우측 여백
-    topLayout->addWidget(btnSelectRoot);
     topLayout->addStretch();    // 우측 여백
     topLayout->addWidget(userInfo);
 
@@ -153,7 +151,7 @@ void CodeShelf::scanDirectory(const QString& path) {
     // 최상위 루트 아이템 생성
     QTreeWidgetItem* rootItem = new QTreeWidgetItem(categoryTree);
     rootItem->setText(0, rootInfo.fileName());
-    rootItem->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
+    // rootItem->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
     rootItem->setExpanded(true);    // 일단 펼쳐두기
 
     // (5) 스캔 및 트랜잭션 관리 
@@ -189,7 +187,7 @@ bool CodeShelf::scanDirRecursive(const QString& path, QTreeWidgetItem* parentIte
             folderitem->setText(0, info.fileName());
 
             static QIcon dirIcon = style()->standardIcon(QStyle::SP_DirIcon);
-            folderitem->setIcon(0, dirIcon); 
+            //folderitem->setIcon(0, dirIcon); 
             folderitem->setData(0, Qt::UserRole, absolutePath);
 
             if (!scanDirRecursive(absolutePath, folderitem, rootDir, DbFilemap)) return false;
@@ -207,7 +205,7 @@ bool CodeShelf::scanDirRecursive(const QString& path, QTreeWidgetItem* parentIte
                 // 트리 UI에 추가(왼쪽편)
                 QTreeWidgetItem* item = new QTreeWidgetItem(parentItem);
                 item->setText(0, info.fileName());
-                item->setIcon(0, fileIcon);
+                //item->setIcon(0, fileIcon);
                 item->setData(0, Qt::UserRole, absolutePath); // 실제 경로 저장
             }
             
@@ -258,92 +256,99 @@ bool CodeShelf::insertFileRecord(const QFileInfo& info, const QString absolutePa
 
 }
 
-
-
 // 칩생성
 void CodeShelf::loadTagsFromDb() {
-    if (!flowlayout) return;
-    // 1. 기존에 있던 칩 위젯 비우기
-    QLayoutItem* item; 
-    while ((item = flowlayout->takeAt(0)) != nullptr) {
-        if (item->widget()) {
-            delete item->widget();
-        }
-        delete item;
+    if (!tagList) {
+        qDebug() << "tagList가 NULL입니다!";
+        return;
     }
+    if (!tagList) return;
+    // 1. 기존에 있던 위젯 비우기
+    tagList->clear();
 
-    // 2. 새로운 버튼 그룹 생성
-    if (tagGroup) delete tagGroup;
-    tagGroup = new QButtonGroup(this);
-    tagGroup->setExclusive(true);
+    qDebug() << "여기요";
+
+    SearchOptions opt;
+    opt.rootId = currentRootId;
+    opt.searchMode = "name";
+    opt.keyword = "";
 
     // ALL 버튼
     allTagBtn();
 
     QStringList extension = DatabaseManager::instance().getExtensionByRootId(currentRootId);
-
-    int idcnt = 1;
+    qDebug() << "확장자 리스트" << extension;
+    qDebug() << "currentRootId:" << currentRootId;
     for (const QString& ext : extension) {
-        // 4. 칩 생성 및 스타일 적용
-        QPushButton* chip = new QPushButton("#" + ext);
+        opt.extension = ext;
+        int count = DatabaseManager::instance().getFileCount(opt);
 
-        chip->setCheckable(true);
-        chip->setCursor(Qt::PointingHandCursor);
+        QListWidgetItem* item = new QListWidgetItem(tagList);
+        item->setData(Qt::UserRole, ext);
 
-        // 스타일 시트
-        chip->setStyleSheet(
-            "QPushButton {"
-            "  background-color: #f1f3f4; color: #3c4043; border: 1px solid #dadce0;"
-            "  border-radius: 12px; padding: 4px 12px; font-size: 11px; font-weight: 500;"
-            "}"
-            "QPushButton:hover { background-color: #e8eaed; }"
-            "QPushButton:checked { background-color: #e8f0fe; color: #1967d2; border-color: #8ab4f8; }"
-        );
+        QWidget* row = new QWidget();
+        QHBoxLayout* layout = new QHBoxLayout(row);
+        layout->setContentsMargins(8, 4, 8, 4);
 
-        // 5. 그룹 및 레이아웃에 추가
-        tagGroup->addButton(chip, idcnt++);
-        flowlayout->addWidget(chip); qDebug() << ">>> 레이아웃에 추가 완료!";
+        QLabel* tagLabel = new QLabel("#" + ext);
+        QLabel* countLabel = new QLabel(QString::number(count));
+        countLabel->setStyleSheet("color: gray;");
 
-        // 6. 칩 클릭 시 해당 확장자 파일만 필터링
-        connect(chip, &QPushButton::clicked, this, [=]() {
-            if (chip->isChecked()) {
-                this->currentSelectedExt = ext;
-                this->currentPage = 0;
-                QString mode = searchFilterCombo->currentData().toString();
-                filterBySearch(ext, searchEdit->text(), mode);
-                updatePagination(ext, searchEdit->text(), mode);
-            }
-        });
+        layout->addWidget(tagLabel);
+        layout->addStretch();
+        layout->addWidget(countLabel);
+
+        item->setSizeHint(row->sizeHint());
+        tagList->addItem(item);
+        tagList->setItemWidget(item, row);
     }
+
+    disconnect(tagList, nullptr, this, nullptr);
+
+    connect(tagList, &QListWidget::itemClicked, this, [=](QListWidgetItem* item) {
+        QString ext = item->data(Qt::UserRole).toString();
+
+        if (ext == "ALL") ext = "";
+
+        this->currentSelectedExt = ext;
+        this->currentPage = 0;
+
+        QString mode = searchFilterCombo->currentData().toString();
+
+        filterBySearch(ext, searchEdit->text(), mode);
+        updatePagination(ext, searchEdit->text(), mode);
+
+    });
 
 }
 // ALL 태그 버튼
 void CodeShelf::allTagBtn() {
-    QPushButton* allBtn = new QPushButton("#ALL");
-    allBtn->setCursor(Qt::PointingHandCursor);
-    allBtn->setCheckable(true);
-    allBtn->setChecked(true);
+    qDebug() << "allTagBtn 시작";
+    SearchOptions opt;
+    opt.rootId = currentRootId;
+    opt.searchMode = "name";
+    opt.extension = "";
+    opt.keyword = "";
 
-    allBtn->setStyleSheet(
-        "QPushButton {"
-        "  background-color: #f1f3f4; color: #3c4043; border: 1px solid #dadce0;"
-        "  border-radius: 12px; padding: 4px 12px; font-size: 11px; font-weight: 500;"
-        "}"
-        "QPushButton:hover { background-color: #e8eaed; }"
-        "QPushButton:checked { background-color: #F3E6FE; color: #B31AD2; border-color: #F88AF8; }"
-    ); 
-    if (tagGroup) {
-        tagGroup->addButton(allBtn);
-    }
-    flowlayout->addWidget(allBtn);
+    int count = DatabaseManager::instance().getFileCount(opt);
+    
+    QListWidgetItem* item = new QListWidgetItem(tagList);
+    item->setData(Qt::UserRole, "ALL");
 
-    connect(allBtn, &QPushButton::clicked, this, [=]() {
-        currentSelectedExt = ""; // 확장자 필터 해제
-        currentPage = 0;
-        QString mode = searchFilterCombo->currentData().toString();
-        filterBySearch("", searchEdit->text(), mode);
-        updatePagination();
-        });
+    QWidget* row = new QWidget();
+    QHBoxLayout* layout = new QHBoxLayout(row);
+    layout->setContentsMargins(8, 4, 8, 4);
+
+    QLabel* tagLabel = new QLabel("#ALL");
+    QLabel* countLabel = new QLabel(QString::number(count));
+
+    layout->addWidget(tagLabel);
+    layout->addStretch();
+    layout->addWidget(countLabel);
+
+    item->setSizeHint(row->sizeHint());
+    tagList->addItem(item);
+    tagList->setItemWidget(item, row); qDebug() << "allTagBtn 끝";
 }
 
 void CodeShelf::updatePagination(const QString& ext, const QString& keyword, const QString& mode) {
@@ -394,6 +399,8 @@ void CodeShelf::updatePagination(const QString& ext, const QString& keyword, con
             });
 
         paginationBar->addWidget(pageBtn);
+
+        pageBtn->setStyleSheet("background-color: #54535E; color:white;");
     }
 
     // (6) [다음] 페이지 버튼 생성
@@ -405,6 +412,9 @@ void CodeShelf::updatePagination(const QString& ext, const QString& keyword, con
         renderPage();
         });
     paginationBar->addWidget(nextBtn);
+
+    prevBtn->setStyleSheet("background-color: #54535E; color:white;");
+    nextBtn->setStyleSheet("background-color: #54535E; color:white;");
 }
 
 void CodeShelf::clearCenterLayout() {
@@ -456,8 +466,6 @@ void CodeShelf :: onTreeItemClicked(QTreeWidgetItem* item, int column) {
 
 
     showDetail(fileInfo.fileName(), path);
-
-    
 }
 
 /* [page 0] 대쉬보드 홈 */
@@ -476,43 +484,63 @@ void CodeShelf::setupManagementPage() {
     leftLayout = new QVBoxLayout(leftWidget);
     leftLayout->setContentsMargins(10, 10, 10, 10); // 전체 여백 추가
     leftLayout->setSpacing(10);   // 아이템들 사이 간격 10px고정
-
+    leftWidget->setStyleSheet("background-color: #3B3A42; color:white;");
     // left : 수직 스플리터
     QSplitter* leftVSplitter = new QSplitter(Qt::Vertical);
 
     // 카테고리 트리pp
 
+    QWidget* treeSection = new QWidget();
+    QVBoxLayout* treeLayout = new QVBoxLayout(treeSection);
+    treeLayout->setContentsMargins(0, 0, 0, 0);
+
+    QLabel* treeLabel = new QLabel("Categories");
+    treeLabel->setStyleSheet("font-weight: bold; color: #aaa;");
+
     categoryTree = new QTreeWidget();
-    categoryTree->setHeaderLabel("Categories");
+    categoryTree->setHeaderHidden(true);
+
+    treeLayout->addWidget(treeLabel);
+    treeLayout->addWidget(categoryTree);
 
     // 태그
     // 태그 제목
     QLabel* tagLabel = new QLabel("태그");
     tagLabel->setStyleSheet("font-weight : bold; color: #555;");
-    leftLayout->addWidget(tagLabel);
+    //leftLayout->addWidget(tagLabel);
+    // leftLayout->addStretch();
+
+    btnSelectRoot = new QPushButton("폴더 선택");
+    leftLayout->addWidget(btnSelectRoot);
+    btnSelectRoot->setStyleSheet("background-color:#555; padding:5px;");
 
     // 태그 : 스크롤 영역
+    QWidget* tagSection = new QWidget();
+    QVBoxLayout* tagSectionLayout = new QVBoxLayout(tagSection);
+    tagSectionLayout->setContentsMargins(0, 0, 0, 0);
+
+    // 제목
+    tagLabel = new QLabel("태그");
+    tagLabel->setStyleSheet("font-weight: bold; color: #aaa;");
+
+    // 리스트
+    tagList = new QListWidget();
+    tagList->setStyleSheet("background: transparent; border: none;");
+
+    // 스크롤
     QScrollArea* tagScrollArea = new QScrollArea();
-    tagScrollArea->setWidgetResizable(true);    // 내부 위젯 크기 조절(자동)
-    tagScrollArea->setFrameShape(QFrame::NoFrame);   // 프레임 지우기(테두리)
-    tagScrollArea->setStyleSheet("background-color: transparent;"); // 배경투명
+    tagScrollArea->setWidgetResizable(true);
+    tagScrollArea->setFrameShape(QFrame::NoFrame);
+    tagScrollArea->setStyleSheet("background-color: #54535E;");
     tagScrollArea->setMinimumHeight(250);
+    tagScrollArea->setWidget(tagList);  // ⭐ 핵심 (딱 하나만!)
 
-    // 태그 : 실제로 칩들이 올라갈 컨테이너 위젯 부분
-    QWidget* tagContainer = new QWidget();
-    tagContainer->setStyleSheet("background-color: transparent;");
-
-    // 태그 : 플로우 레이아웃 적용(자동 줄바꿈)
-    flowlayout = new FlowLayout(tagContainer);
-    flowlayout->setContentsMargins(0, 0, 0, 0);
-    flowlayout->setSpacing(5);  // 칩들 사이 간격
-
-    // 태그 : 스크롤 영역에 컨테이터
-    tagScrollArea->setWidget(tagContainer);
+    tagSectionLayout->addWidget(tagLabel);
+    tagSectionLayout->addWidget(tagScrollArea);
 
     // 왼쪽 레이아웃에 붙이기
-    leftVSplitter->addWidget(categoryTree);
-    leftVSplitter->addWidget(tagScrollArea);
+    leftVSplitter->addWidget(treeSection);
+    leftVSplitter->addWidget(tagSection);
 
     // 스플리터 초기비율 (트리7, 태그3)
     leftVSplitter->setStretchFactor(0, 6);
@@ -524,7 +552,7 @@ void CodeShelf::setupManagementPage() {
     // center : 리스트, 검색창
     QWidget* centerWidget = new QWidget();
     centerMainLayout = new QVBoxLayout(centerWidget);
-    
+    centerWidget->setStyleSheet("background-color:#282828");
 
     // 검색 창 설정
     setupSearchUI(); 
@@ -552,36 +580,52 @@ void CodeShelf::setupManagementPage() {
     paginationBar->setAlignment(Qt::AlignCenter);
     centerMainLayout->addWidget(bottomBarWidget);
 
-    //addItem(centerLayout, "Login_Module.cpp", "2026-04-06", "#Network");
-    //addItem(centerLayout, "Database_Connect.sql", "2026-04-05", "#SQL");
-
-
     // right : 미리보기 및 버튼
     QWidget* rightWidget = new QWidget();
     QVBoxLayout* rightMainLayout = new QVBoxLayout(rightWidget);
+    rightMainLayout->setContentsMargins(0, 0, 0, 0);
+    rightMainLayout->setSpacing(0);
 
     // right-T 위쪽 위젯 (정보 영역)
     QWidget* infoWidget = new QWidget();
+    infoWidget->setStyleSheet("background-color: #ffffff; border-bottom: 1px solid #ddd;");
     QVBoxLayout* infoLayout = new QVBoxLayout(infoWidget);  // 정보들도 위아래로 쌓을꺼니깐
-    infoLayout->setContentsMargins(0, 0, 0, 5); // 아래쪽 마진주기
-    infoWidget->setStyleSheet("background-color:white");
+    infoLayout->setContentsMargins(15, 15, 15, 15);
+    infoLayout->setSpacing(8);
 
-    lblPName = new QLabel("Project : Code-1231");
-    lblPName->setStyleSheet("font-size:18px; font-weight:bold");
+    // 첫째줄 파일이름, 날짜
+    QWidget* titleLine = new QWidget();
+    QVBoxLayout* titleLayout = new QVBoxLayout(titleLine);
+    titleLayout->setContentsMargins(0, 0, 0, 0);
 
-    lblComment = new QLabel("// 파일입출력 기본예제");
-    lblComment->setStyleSheet("color:gray");
+    lblFileName = new QLabel("Project : Code-1231");
+    lblFileName->setStyleSheet("font-size:18px; font-weight:bold; color: white;");
 
-    // 태그들을 위한 공간(가로로나열)
-    QWidget* tagBar = new QWidget();
-    QHBoxLayout* tagLayout = new QHBoxLayout(tagBar);
-    tagLayout->setContentsMargins(0, 0, 0, 0);
+    lblFileDate = new QLabel("2024-10-10 "); 
+    lblFileDate->setStyleSheet("font-size: 12px; color: #ddd;");
 
-    infoLayout->addWidget(lblPName);
-    infoLayout->addWidget(lblComment);
-    infoLayout->addWidget(tagBar);
+    titleLayout->addWidget(lblFileName);
+    titleLayout->addStretch();
+    titleLayout->addWidget(lblFileDate);
+    infoWidget->setStyleSheet("background-color:#54535E;");
 
-    loadTagsFromDb();
+    // 둘째줄 파일 위치
+    lblFilePath = new QLabel("");
+    lblFilePath->setStyleSheet("font-size: 12px; color: #ddd; font-family: 'Consolas';");
+    lblFilePath->setWordWrap(true);
+
+    // 셋째줄 태그 영역
+    tagContainer = new QWidget();
+    tagLayout = new QHBoxLayout(tagContainer);;
+    tagLayout->setContentsMargins(0, 5, 0, 0);
+    tagLayout->setSpacing(5);
+    tagLayout->addStretch();
+
+    // infoLayout에 추가
+    infoLayout->addWidget(titleLine);
+    infoLayout->addWidget(lblFilePath);
+    infoLayout->addWidget(tagContainer);
+
 
     // right-B 아래쪽 위젯(코드 영역)
     codePreview = new QTextEdit();
@@ -595,14 +639,27 @@ void CodeShelf::setupManagementPage() {
     new CodeHighlighter(codePreview->document());
     codePreview->setReadOnly(true); // 수정불가하게
     highlighter = new CodeHighlighter(codePreview->document());
-    QPushButton* btnCopy = new QPushButton("클립보드 복사");
-    QPushButton* btnDir = new QPushButton("클립보드 복사");
+
+    // 아래 버튼
+    QHBoxLayout* btnLayout = new QHBoxLayout();
+    QPushButton* btnCopy = new QPushButton("코드 복사");
+    QPushButton* btnDir = new QPushButton("폴더 열기");
+
+    QString btnStyle = "color:white;";
+
+    btnCopy->setStyleSheet(btnStyle);
+    btnDir->setStyleSheet(btnStyle);
+
+    btnLayout->addWidget(btnCopy);
+    btnLayout->addWidget(btnDir);
+
+    connect(btnCopy, &QPushButton::clicked, this, &CodeShelf::onCopyClicked);
+    connect(btnDir, &QPushButton::clicked, this, &CodeShelf::onOpenDirClicked);
 
     // right 합체
     rightMainLayout->addWidget(infoWidget);
-    rightMainLayout->addWidget(codePreview);
-    rightMainLayout->addWidget(btnCopy);
-    rightMainLayout->setStretch(1, 1);
+    rightMainLayout->addWidget(codePreview,1);
+    rightMainLayout->addLayout(btnLayout);
 
     // 코드창과 정보창 크기 비율 조정
     rightMainLayout->setStretchFactor(infoWidget, 2);
@@ -651,8 +708,8 @@ void CodeShelf::addItem(QVBoxLayout* targetLayout, QString name, QString date, Q
 
     // 4. 아래쪽줄 구성(tag)
     QHBoxLayout* ctagLayout = new QHBoxLayout();
-    QLabel* tag1 = new QLabel(tag);
-    tag1->setStyleSheet("background: #eee; border-radius: 5px; padding: 2px;");
+    QLabel* tag1 = new QLabel("#"+tag);
+    tag1->setStyleSheet("background: #FFD864; border-radius: 5px; padding: 2px 2px 4px 4px; color:black;");
     ctagLayout->addWidget(tag1);
     ctagLayout->addStretch();   // 왼쪽 태그정렬
     tag1->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -668,12 +725,12 @@ void CodeShelf::addItem(QVBoxLayout* targetLayout, QString name, QString date, Q
 
 
     itemWidget->setAttribute(Qt::WA_Hover); // 호버 효과 활성화
-    itemWidget->setMouseTracking(true);     // 마우스 추적 활성화 (선택사항)
+    itemWidget->setMouseTracking(true);     // 마우스 추적 활성화
     itemWidget->setCursor(Qt::PointingHandCursor);      // 마우스를 올리면 손가락 모양
     
     itemWidget->setStyleSheet(
-        "QWidget { background-color: white; border: 1px solid #ddd; border-radius: 5px; }"
-        "QWidget:hover { background-color: #f0f7ff; border: 1px solid #0078d7; }" // 호버 시 푸른 테두리 (선택)
+        "QWidget { background-color: #54535E; border: 1px solid #575757; border-radius: 5px; color:white }"
+        "QWidget:hover { background-color: #302F36; border: 1px solid white; }"
         "QLabel { border: none; background: transparent; }" // 자식 라벨들의 테두리와 배경 제거
     );
 
@@ -763,6 +820,7 @@ bool CodeShelf::eventFilter(QObject* obj, QEvent* event) {
                     qDebug() << "경로 데이터가 비어있습니다! addItem의 setProperty를 확인하세요.";
                     return false;
                 }
+
                 // 상세보기 함수 호출
                 showDetail(name, path);
                 return true;
@@ -772,15 +830,47 @@ bool CodeShelf::eventFilter(QObject* obj, QEvent* event) {
     return QWidget::eventFilter(obj, event);
 } 
 void CodeShelf::showDetail(const QString& name, const QString& path) {
-    lblPName->setText("File : " + name);
-    lblComment->setText("// Location" + path);
-
-    // 파일 확장자 추출
+    qDebug() << "showDetail 진입";
+    qDebug() << "highlighter:" << highlighter;
+    qDebug() << "lblFileName:" << lblFileName;
+    qDebug() << "lblFileDate:" << lblFileDate;
+    qDebug() << "lblFilePath:" << lblFilePath;
+    qDebug() << "tagLayout:" << tagLayout;
+    qDebug() << "codePreview:" << codePreview;
     QFileInfo fileInfo(path);
-    QString extension = fileInfo.suffix().toLower();
+    currentFilePath = path;
+    // 기본정보세팅
+    lblFileName->setText(name);
+    lblFileDate->setText(fileInfo.lastModified().toString("yyyy-MM-dd"));
+    lblFilePath->setText(fileInfo.absolutePath());
 
-    // 하이라이터 언어 변경
-    highlighter->setLanguage(extension);
+    // 태그(확장자) 표시 업뎃
+    // 기존 태그 삭제
+    QLayoutItem* child;
+    while ((child = tagLayout->takeAt(0)) != nullptr) {
+        if (child->widget()) delete child->widget();
+        delete child;
+    }
+
+    // 새 태그 추가
+    // 파일 확장자 추출
+    QString ext = fileInfo.suffix().toLower();
+    if (!ext.isEmpty()) {
+        QLabel* tagChip = new QLabel("#" + ext);
+
+        // 스타일 시트
+        tagChip->setStyleSheet(
+            "QLabel {"
+            "  background-color: #FFD864; color: black; border: 1px solid #dadce0;"
+            "  border-radius: 12px; padding: 4px 12px; font-size: 11px; font-weight: 500;"
+            "}"
+        );
+        tagLayout->addWidget(tagChip);
+    }
+    tagLayout->addStretch();
+
+    // 하이라이팅 및 내용 로드
+    highlighter->setLanguage(fileInfo.suffix().toLower());
 
     QFile file(path);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -839,7 +929,7 @@ void CodeShelf::setupSearchUI() {
     searchEdit = new QLineEdit();
     searchEdit->setPlaceholderText("검색어를 입력하세요...");
     searchEdit->setClearButtonEnabled(true);    // 우측에 x버튼
-    searchEdit->setStyleSheet("padding:5px;");
+    searchEdit->setStyleSheet("padding:5px; color:white;");
 
     // 검색 버튼
     QPushButton* searchBtn = new QPushButton("검색");
@@ -866,24 +956,30 @@ void CodeShelf::setupSearchUI() {
         filterBySearch (currentSelectedExt, searchEdit->text(), currentSearch.mode);
     });
 }
+void CodeShelf::onCopyClicked() {
+    QString text = codePreview->toPlainText();
+    if (text.isEmpty()) {
+        return;
+    }
 
-void CodeShelf::onSearchExecuted() {
-    SearchOptions opt;
-    opt.rootId = currentRootId;
-    opt.keyword = searchEdit->text().trimmed();
-    opt.extension = currentSelectedExt; // 현재 선택된 태그
+    QClipboard* clipboard = QApplication::clipboard();
+    clipboard->setText(text);
 
-    // 현재 콤보박스에서 all or title 가져오기
-    opt.searchMode = searchFilterCombo->currentData().toString();
+    statusBar()->showMessage("클립보드에 복사되었습니다",2000);
 
-    // db 데이터 요청
-    auto files = DatabaseManager::instance().fetchFiles(opt);
-
-    // 결과 UI 갱신
-    
 }
+void CodeShelf::onOpenDirClicked() {
+    QFileInfo fileInfo(currentFilePath);
 
-
+    if (currentFilePath.isEmpty() || !QFile::exists(currentFilePath)) {
+        QMessageBox::warning(this, "알림", "파일 경로가 유효하지 않습니다");
+        return;
+    }
+    QString nativePath = QDir::toNativeSeparators(fileInfo.absoluteFilePath());
+    QStringList args;
+    args << "/select," << nativePath;
+    QProcess::startDetached("explorer.exe", args);
+}
 
 CodeShelf::~CodeShelf()
 {}

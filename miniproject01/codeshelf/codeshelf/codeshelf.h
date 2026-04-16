@@ -32,6 +32,11 @@
 #include <QButtonGroup>
 #include <QAbstractButton>
 #include <QtGlobal>
+#include <QClipboard>
+#include <QApplication>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QProcess>
 #include"flowlayout.h"
 #include"CodeHighlighter.h"
 #include"DatabaseManager.h"
@@ -57,6 +62,9 @@ private slots:
     void showHome();             // 홈 화면 전환 슬롯
     void onSelectRootFolder();  // 슬롯 함수
     void onTreeItemClicked(QTreeWidgetItem* item, int column);
+
+    void onCopyClicked();
+    void onOpenDirClicked();
 
     QString formatDate(const QString& rawDate);
 
@@ -129,7 +137,7 @@ private:
     const int pageGroupSize = 6;
 
     void updatePagination(const QString& ext = "", const QString& keyword = "", const QString& mode="title");
-
+    QListWidget* tagList;
     void loadTagsFromDb();
     void filterByExt(const QString& ext, int offset);
 
@@ -143,8 +151,11 @@ private:
 
     void showDetail(const QString& name, const QString& path);
 
-    QLabel* lblPName;
-    QLabel* lblComment;
+    QLabel* lblFileName;
+    QLabel* lblFilePath;
+    QLabel* lblFileDate;
+    QWidget* tagContainer;
+    QHBoxLayout* tagLayout;
     /* 실제 코드 창 */
     QTextEdit* codePreview;
 
@@ -157,4 +168,9 @@ private:
     QList<FileItem> cachedResults;
 
     void renderPage();
+
+    // 복사
+    void copyToClipboard(const QString& text);
+
+    // 파일 선택기에서 파일 선택
 };
