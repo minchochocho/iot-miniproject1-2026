@@ -91,7 +91,7 @@ QList<FileItem> DatabaseManager::fetchFiles(const SearchOptions& opt) {
 	return results;
 }
 
-// [3] 파일 레코드 삽입 및 업데이트
+// [3] 파일 레코드 삽입 및 업데이트(키워드 분류)
 bool DatabaseManager::insertFileRecord(const FileRecord& record) {
 	if (!db.isOpen()) return false;
 	
