@@ -62,5 +62,11 @@
     <QtMoc Include="CodeHighlighter.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="ScanWorker.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <ClCompile Include="ScanWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

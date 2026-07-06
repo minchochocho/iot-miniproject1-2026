@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QStringList>
+#include <QHash>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -59,6 +60,10 @@ public:
 
 	/*** [3] 파일 레코드 삽입 및 업데이트 ***/
 	bool insertFileRecord(const FileRecord& record);
+	static bool insertFileMetadata(const FileRecord& record, QSqlDatabase& db);
+	static QString normalizePath(const QString& path);
+	static bool isSameFileTime(const QDateTime& dbTime, const QDateTime& fileTime);
+	static QSqlDatabase createThreadConnection(const QString& connectionName);
 	
 	/*** [4] Root ID 조회 및 생성 + UPDATE ***/
 	int getOrCreateRootID(const QString& rootPath);

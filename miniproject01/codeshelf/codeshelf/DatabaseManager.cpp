@@ -1,5 +1,97 @@
 #include"DatabaseManager.h"
 #include<QDebug>
+#include<QDir>
+#include<QFileInfo>
+
+namespace {
+const char* kDefaultHost = "127.0.0.1";
+const char* kDefaultUser = "shl_user";
+const char* kDefaultPass = "rcg6510@";
+const char* kDefaultDbName = "CODESHELF";
+}
+
+QString DatabaseManager::normalizePath(const QString& path)
+{
+    QString normalized = QDir::fromNativeSeparators(QFileInfo(path).absoluteFilePath());
+#ifdef Q_OS_WIN
+    normalized = normalized.toLower();
+#endif
+    return normalized;
+}
+
+bool DatabaseManager::isSameFileTime(const QDateTime& dbTime, const QDateTime& fileTime)
+{
+    if (!dbTime.isValid() || !fileTime.isValid()) {
+        return false;
+    }
+
+    return dbTime.toSecsSinceEpoch() == fileTime.toSecsSinceEpoch();
+}
+
+QSqlDatabase DatabaseManager::createThreadConnection(const QString& connectionName)
+{
+    if (QSqlDatabase::contains(connectionName)) {
+        QSqlDatabase existing = QSqlDatabase::database(connectionName);
+        if (!existing.isOpen()) {
+            existing.open();
+        }
+        return existing;
+    }
+
+    QSqlDatabase threadDb = QSqlDatabase::addDatabase("QMYSQL", connectionName);
+    threadDb.setHostName(QString::fromLatin1(kDefaultHost));
+    threadDb.setUserName(QString::fromLatin1(kDefaultUser));
+    threadDb.setPassword(QString::fromLatin1(kDefaultPass));
+    threadDb.setDatabaseName(QString::fromLatin1(kDefaultDbName));
+
+    if (!threadDb.open()) {
+        qDebug() << "Worker DB 연결 실패:" << threadDb.lastError().text();
+    }
+
+    return threadDb;
+}
+
+bool DatabaseManager::insertFileMetadata(const FileRecord& record, QSqlDatabase& db)
+{
+    if (!db.isOpen()) {
+        return false;
+    }
+
+    QString autoTag;
+    const QString ext = record.extension;
+    if (ext == "c" || ext == "cpp" || ext == "h") {
+        autoTag = "#C #C++ #Source";
+    }
+    else if (ext == "py") {
+        autoTag = "#Python # Script";
+    }
+    else if (ext == "sql") {
+        autoTag = "#Database #SQL";
+    }
+
+    QSqlQuery q(db);
+    q.prepare(
+        "INSERT INTO codes(root_id, filepath, file_name, extension, file_size, content, last_modified, tags) "
+        "VALUES (:rid, :file_path, :name, :ext, :size, '', :modified, :tags) "
+        "ON DUPLICATE KEY UPDATE "
+        "file_size = :size, last_modified = :modified, tags = :tags, file_name = :name"
+    );
+
+    q.bindValue(":rid", record.rootId);
+    q.bindValue(":file_path", normalizePath(record.filePath));
+    q.bindValue(":name", record.fileName);
+    q.bindValue(":ext", record.extension);
+    q.bindValue(":size", record.fileSize);
+    q.bindValue(":modified", record.lastModified.toString("yyyy-MM-dd HH:mm:ss"));
+    q.bindValue(":tags", autoTag);
+
+    if (!q.exec()) {
+        qDebug() << "메타데이터 저장 에러 (" << record.fileName << "):" << q.lastError().text();
+        return false;
+    }
+
+    return true;
+}
 
 // [1] DB 연결(프로그램 시작 시 한번 호출)
 bool DatabaseManager::connectDB(const QString& host, const QString& user, const QString& pass, const QString& dbName) {
@@ -111,7 +203,7 @@ bool DatabaseManager::insertFileRecord(const FileRecord& record) {
 	);
 
 	q.bindValue(":rid", record.rootId);
-	q.bindValue(":file_path", record.filePath);
+	q.bindValue(":file_path", normalizePath(record.filePath));
 	q.bindValue(":name", record.fileName);
 	q.bindValue(":ext", record.extension);
 	q.bindValue(":size", record.fileSize);
@@ -129,11 +221,13 @@ bool DatabaseManager::insertFileRecord(const FileRecord& record) {
 // [4]
 int DatabaseManager::getOrCreateRootID(const QString& rootPath) {
 	if (!db.isOpen()) return -1;
+
+	const QString normalizedPath = normalizePath(rootPath);
 	QSqlQuery query;
 	
 	// (1) 기존 경로 확인
 	query.prepare("SELECT id FROM storage_roots WHERE root_path = :path");
-	query.bindValue(":path", rootPath);
+	query.bindValue(":path", normalizedPath);
 
 	if (query.exec() && query.next()) {
 		int id = query.value(0).toInt();
@@ -147,7 +241,7 @@ int DatabaseManager::getOrCreateRootID(const QString& rootPath) {
 	else {
 		// (2) 신규 등록
 		query.prepare("INSERT INTO storage_roots (root_path, past_scanned) VALUES (:path, NOW()) ");
-		query.bindValue(":path", rootPath);
+		query.bindValue(":path", normalizedPath);
 		if (query.exec()) {
 			return query.lastInsertId().toInt();
 		}
@@ -165,7 +259,8 @@ QHash<QString, QDateTime> DatabaseManager::getFileModificationMap(int rootId) {
 
 	if (q.exec()) {
 		while(q.next()){
-			fileMap.insert(q.value(0).toString(), q.value(1).toDateTime());		
+			const QString path = normalizePath(q.value(0).toString());
+			fileMap.insert(path, q.value(1).toDateTime());		
 		}
 	}
 	return fileMap;

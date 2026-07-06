@@ -3,10 +3,7 @@
 CodeShelf::CodeShelf(QWidget *parent)
     : QMainWindow(parent)
 {
-    /* 데이터베이스 접속*/
-    if (!DatabaseManager::instance().connectDB()) {
-        QMessageBox::critical(this, "에러", "데이터베이스에 연결할 수 없습니다");
-    }
+    initDatabase();
     /* [1] 전체 베이스 초기설정 */
     centerWidget = new QWidget(this);
     mainLayout = new QVBoxLayout(centerWidget);
@@ -60,8 +57,8 @@ void CodeShelf::setupTopBar() {
 
     QLabel* logo = new QLabel("CodeShelf");
 
-    //btnHome = new QPushButton("홈");
-    //btnSearchToggle = new QPushButton("검색/관리");
+    btnHome = new QPushButton("홈");
+    btnSearchToggle = new QPushButton("검색/관리");
 
     logo->setStyleSheet("font-weight: bold; font-size: 18px; margin-left:10px;");
 
@@ -80,37 +77,48 @@ void CodeShelf::setupTopBar() {
 // 폴더 선택 시 저장(쓰기)
 void CodeShelf::onDirSelected(const QString& path) {
     qDebug() << "저장했어요" << path;
-    // 회사이름, 앱이름 형식
     QSettings settings("MinSoft", "CodeShelf");
+    settings.setValue("lastFolderPath", DatabaseManager::normalizePath(path));
+}
 
-    // lastFolderPath라는 키값으로 경로 저장
-    settings.setValue("lastFolderPath", path);
+// 시작시 DB에 저장된 목록만 복원 (디스크 스캔 없음)
+void CodeShelf::loadSessionFromDb(const QString& path) {
+    currentRootPath = DatabaseManager::normalizePath(path);
+    currentRootId = DatabaseManager::instance().getOrCreateRootID(currentRootPath);
+    if (currentRootId <= 0) {
+        return;
+    }
+
+    mainStackedWidget->setCurrentWidget(mainSplitter);
+
+    categoryTree->clear();
+    QTreeWidgetItem* rootItem = new QTreeWidgetItem(categoryTree);
+    rootItem->setText(0, QFileInfo(currentRootPath).fileName());
+    rootItem->setData(0, Qt::UserRole, currentRootPath);
+    rootItem->setExpanded(true);
+
+    loadTagsFromDb();
+    filterBySearch("", "", "title");
 }
 
 // 시작시 읽기
 void CodeShelf::initApp() {
     QSettings settings("MinSoft", "CodeShelf");
-    QString lastPath = settings.value("lastFolderPath", "C:/SourceBank").toString();
+    QString lastPath = settings.value("lastFolderPath", "").toString();
 
-    lastPath = QDir::fromNativeSeparators(lastPath);    // 슬래시로 정규화
+    lastPath = QDir::fromNativeSeparators(lastPath);
 
-    if (!lastPath.isEmpty() && QDir(lastPath).exists()) {
-            qDebug() << "경로 복원 시도" << lastPath;
-
-            this->currentRootPath = lastPath;
-
-            mainStackedWidget->setCurrentWidget(mainSplitter);
-
-            // 스캔 함수 호출
-            scanDirectory(lastPath);
-
-            statusBar()->showMessage("이전 작업 폴더를 불러왔습니다: " + lastPath, 3000);
-    }
-    else {
-        qDebug() << "못 불러왔어요" << lastPath;
-
+    if (lastPath.isEmpty() || !QDir(lastPath).exists()) {
+        qDebug() << "저장된 작업 폴더 없음:" << lastPath;
+        return;
     }
 
+    qDebug() << "DB에서 세션 복원:" << lastPath;
+    loadSessionFromDb(lastPath);
+
+    statusBar()->showMessage(
+        "저장된 목록을 불러왔습니다. 「폴더 선택」으로 디스크와 동기화할 수 있습니다: " + lastPath,
+        5000);
 }
 
 /* [1] 폴더 선택 */
@@ -127,133 +135,88 @@ void CodeShelf::onSelectRootFolder() {
 
 }
 
-/* [2] 파일 스캔 및 트리 업뎃 */
+/* [2] 파일 스캔 - 백그라운드 스레드 */
 void CodeShelf::scanDirectory(const QString& path) {
-    // 트리 업데이트 시간 간격 주기용
-    QElapsedTimer timer;
-    timer.start();
+    if (isScanRunning) {
+        statusBar()->showMessage(QStringLiteral("이미 스캔 중입니다."), 2000);
+        return;
+    }
 
-    // (1) 경로 정규화 및 UI 설정
-    QFileInfo rootInfo(path);
-    currentRootPath = rootInfo.absoluteFilePath();
-
-    // (2) 루트 ID 확보 (manager에 넣을)
+    currentRootPath = DatabaseManager::normalizePath(path);
     currentRootId = DatabaseManager::instance().getOrCreateRootID(currentRootPath);
-    if (currentRootId <= 0) return;
+    if (currentRootId <= 0) {
+        QMessageBox::warning(this, QStringLiteral("알림"), QStringLiteral("루트 폴더 정보를 DB에 저장하지 못했습니다."));
+        return;
+    }
 
-    // (3) 캐시 맵 가져오기
-    QHash<QString, QDateTime> dbFileMap = DatabaseManager::instance().getFileModificationMap(currentRootId);
+    const QHash<QString, QDateTime> dbFileMap =
+        DatabaseManager::instance().getFileModificationMap(currentRootId);
 
-    // (4) UI 초기화
     categoryTree->setUpdatesEnabled(false);
     categoryTree->clear();
 
-    // 최상위 루트 아이템 생성
     QTreeWidgetItem* rootItem = new QTreeWidgetItem(categoryTree);
-    rootItem->setText(0, rootInfo.fileName());
-    // rootItem->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
-    rootItem->setExpanded(true);    // 일단 펼쳐두기
+    rootItem->setText(0, QFileInfo(currentRootPath).fileName());
+    rootItem->setExpanded(true);
 
-    // (5) 스캔 및 트랜잭션 관리 
-    if (DatabaseManager::instance().beginTransaction()) { 
-        QDir rootDir(currentRootPath);
-        if (scanDirRecursive(currentRootPath,rootItem, rootDir, dbFileMap)) {
-            DatabaseManager::instance().commitTransaction();
-            loadTagsFromDb();
-        }
-        else {
-            DatabaseManager::instance().rollbackTransaction();
-            categoryTree->clear();
-        }
-    }
+    QTreeWidgetItem* pendingItem = new QTreeWidgetItem(rootItem);
+    pendingItem->setText(0, QStringLiteral("스캔 중..."));
     categoryTree->setUpdatesEnabled(true);
-    filterBySearch("", "", "all");
+
+    isScanRunning = true;
+    btnSelectRoot->setEnabled(false);
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    statusBar()->showMessage(QStringLiteral("폴더 스캔 중..."));
+
+    scanThread = new QThread(this);
+    scanWorker = new ScanWorker();
+    scanWorker->moveToThread(scanThread);
+
+    connect(scanThread, &QThread::started, scanWorker, [=]() {
+        scanWorker->scan(currentRootPath, currentRootId, dbFileMap);
+    });
+    connect(scanWorker, &ScanWorker::scanProgress, this, &CodeShelf::onScanProgress);
+    connect(scanWorker, &ScanWorker::scanFinished, this, &CodeShelf::onScanFinished);
+    connect(scanWorker, &ScanWorker::scanFailed, this, &CodeShelf::onScanFailed);
+    connect(scanThread, &QThread::finished, scanWorker, &QObject::deleteLater);
+    connect(scanThread, &QThread::finished, scanThread, &QObject::deleteLater);
+    connect(scanThread, &QThread::finished, this, [this]() {
+        scanWorker = nullptr;
+        scanThread = nullptr;
+    });
+
+    scanThread->start();
 }
 
-// [3] 재귀적으로 폴더 훑기
-bool CodeShelf::scanDirRecursive(const QString& path, QTreeWidgetItem* parentItem, const QDir& rootDir, const QHash<QString, QDateTime>& DbFilemap) {
-    QDir directory(path);
-
-    // 1. 파일 및 폴더 리스트 가져오기 (숨김파일 제외, 이름순 정렬)
-    QFileInfoList entries = directory.entryInfoList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
-
-    //QApplication::setOverrideCursor(Qt::WaitCursor);
-    for (const QFileInfo& info : entries) {
-        QString absolutePath = info.absoluteFilePath();
-
-        if (info.isDir()) {
-            // [폴더인 경우] 아이콘 설정 후 재귀 호출
-            QTreeWidgetItem* folderitem = new QTreeWidgetItem(parentItem);
-            folderitem->setText(0, info.fileName());
-
-            static QIcon dirIcon = style()->standardIcon(QStyle::SP_DirIcon);
-            //folderitem->setIcon(0, dirIcon); 
-            folderitem->setData(0, Qt::UserRole, absolutePath);
-
-            if (!scanDirRecursive(absolutePath, folderitem, rootDir, DbFilemap)) return false;
-        }
-        else {
-            // [파일인 경우] 확장자 필터링 (C++, SQL, Python 등)
-            QString suffix = info.suffix().toLower();
-            if (suffix == "c" || suffix == "cpp" || suffix == "h" || suffix == "sql" || suffix == "py") {
-                if (!insertFileRecord(info, absolutePath,DbFilemap)) {
-                    return false;   // 하나라도 실패하면 전체 롤백 해야하니깐
-                }
-
-                static QIcon fileIcon = style()->standardIcon(QStyle::SP_FileIcon);
-
-                // 트리 UI에 추가(왼쪽편)
-                QTreeWidgetItem* item = new QTreeWidgetItem(parentItem);
-                item->setText(0, info.fileName());
-                //item->setIcon(0, fileIcon);
-                item->setData(0, Qt::UserRole, absolutePath); // 실제 경로 저장
-            }
-            
-        }
-    }
-
-    return true;
+void CodeShelf::onScanProgress(int processedCount) {
+    statusBar()->showMessage(QStringLiteral("폴더 스캔 중... (%1개 처리)").arg(processedCount));
 }
 
-// [4] 파일 내용읽어서 넣음
-bool CodeShelf::insertFileRecord(const QFileInfo& info, const QString absolutePath, const QHash<QString, QDateTime>& dbFilemap) {
+void CodeShelf::onScanFailed(const QString& message) {
+    statusBar()->showMessage(message, 4000);
+}
 
-    QDateTime fileTime = info.lastModified();
+void CodeShelf::onScanFinished(bool success, int changedCount, int skippedCount) {
+    isScanRunning = false;
+    btnSelectRoot->setEnabled(true);
+    QApplication::restoreOverrideCursor();
 
-    // (1) 변경 여부 확인: 기존 DB 시간과 파일 수정 시간이 같으면 스캔을 skip
-    if (dbFilemap.contains(absolutePath)) {
-        QDateTime dbTime = dbFilemap.value(absolutePath);
-        if (dbTime.toString("yyyy-MM-dd HH:mm:ss") == fileTime.toString("yyyy-MM-dd HH:mm:ss")) {
-            return true;
-        }
-        qDebug() << "변경됨" << absolutePath;
+    categoryTree->clear();
+    QTreeWidgetItem* rootItem = new QTreeWidgetItem(categoryTree);
+    rootItem->setText(0, QFileInfo(currentRootPath).fileName());
+    rootItem->setData(0, Qt::UserRole, currentRootPath);
+    rootItem->setExpanded(true);
+
+    if (success) {
+        loadTagsFromDb();
+        filterBySearch("", "", "title");
+        statusBar()->showMessage(
+            QStringLiteral("스캔 완료 - 변경/신규: %1, 건너뜀: %2").arg(changedCount).arg(skippedCount),
+            5000);
     }
-    else qDebug() << "신규파일" << absolutePath;
-
-
-    // (2) 파일 내용 읽기
-    QFile file(info.absoluteFilePath());
-    QString fileContent = "";
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QTextStream in(&file);
-        in.setEncoding(QStringConverter::Utf8);
-        fileContent = in.readAll();
-        file.close();
+    else {
+        statusBar()->showMessage(QStringLiteral("스캔 중 오류가 발생했습니다."), 4000);
     }
-    
-    // (3) DatabaseManager에 전달할 데이터 묶기
-    FileRecord record;
-    record.rootId = currentRootId;
-    record.filePath = absolutePath;
-    record.fileName = info.fileName();
-    record.extension = info.suffix().toLower();
-    record.fileSize = info.size();
-    record.content = fileContent;
-    record.lastModified = fileTime;
-
-    // (4) 매니저에게 저장 요청
-    return DatabaseManager::instance().insertFileRecord(record);
-
 }
 
 // 칩생성
@@ -352,12 +315,13 @@ void CodeShelf::allTagBtn() {
 }
 
 void CodeShelf::updatePagination(const QString& ext, const QString& keyword, const QString& mode) {
-    // (1) 기존 레이아웃 비우기
+    Q_UNUSED(ext);
+    Q_UNUSED(keyword);
+    Q_UNUSED(mode);
+
     clearPagination();
 
-    // (2) 해당 확장자의 전체 아이템 개수 가져오기
-
-    int totalCnt = cachedResults.size();
+    int totalCnt = totalResultCount;
 
     if (totalCnt <= 0) return;
 
@@ -755,8 +719,6 @@ void CodeShelf::onSearchTextChanged(const QString& text) {
 
 }
 void CodeShelf::filterBySearch(const QString& ext, const QString& keyword, const QString& mode) {
-    clearCenterLayout();
-
     currentSearch.rootId = currentRootId;
     currentSearch.extension = ext;
     currentSearch.keyword = keyword;
@@ -770,25 +732,24 @@ void CodeShelf::filterBySearch(const QString& ext, const QString& keyword, const
     opt.keyword = keyword;
     opt.searchMode = mode;
 
-    opt.limit = 100000;
-    opt.offset = 0;
-
-    // (2) 매니저에게 데이터 요청
-    QList<FileItem> files = DatabaseManager::instance().fetchFiles(opt);
-    cachedResults= DatabaseManager::instance().fetchFiles(opt);
+    totalResultCount = DatabaseManager::instance().getFileCount(opt);
     renderPage();
-
-    updatePagination(ext, keyword, mode);
 }
 
 void CodeShelf::renderPage() {
     clearCenterLayout();
 
-    int start = currentPage * pageSize;
-    int end = qMin(start + pageSize, (int)cachedResults.size());
+    SearchOptions opt;
+    opt.rootId = currentSearch.rootId;
+    opt.extension = currentSearch.extension;
+    opt.keyword = currentSearch.keyword;
+    opt.searchMode = currentSearch.mode;
+    opt.limit = pageSize;
+    opt.offset = currentPage * pageSize;
 
-    for (int i = start; i < end; i++) {
-        const auto& file = cachedResults[i];
+    cachedResults = DatabaseManager::instance().fetchFiles(opt);
+
+    for (const auto& file : cachedResults) {
         addItem(centerLayout,
             file.name,
             file.lastModified.toString("yyyy-MM-dd"),
@@ -799,7 +760,7 @@ void CodeShelf::renderPage() {
 
     centerLayout->addStretch(1);
 
-    updatePagination("", "", "");
+    updatePagination(currentSearch.extension, currentSearch.keyword, currentSearch.mode);
 }
 
 // 클릭 감지(센터 아이템)
@@ -957,16 +918,61 @@ void CodeShelf::setupSearchUI() {
     });
 }
 void CodeShelf::onCopyClicked() {
-    QString text = codePreview->toPlainText();
+    copyToClipboard(codePreview->toPlainText());
+}
+
+void CodeShelf::initDatabase() {
+    if (!DatabaseManager::instance().connectDB()) {
+        QMessageBox::critical(this, "에러", "데이터베이스에 연결할 수 없습니다");
+    }
+}
+
+void CodeShelf::onSearchRequested() {
+    const QString mode = searchFilterCombo
+        ? searchFilterCombo->currentData().toString()
+        : QStringLiteral("title");
+    const QString keyword = searchEdit ? searchEdit->text() : QString();
+
+    currentPage = 0;
+    filterBySearch(currentSelectedExt, keyword, mode);
+}
+
+void CodeShelf::filterByExt(const QString& ext, int offset) {
+    currentSelectedExt = ext;
+
+    const QString mode = searchFilterCombo
+        ? searchFilterCombo->currentData().toString()
+        : QStringLiteral("title");
+    const QString keyword = searchEdit ? searchEdit->text() : QString();
+
+    currentSearch.rootId = currentRootId;
+    currentSearch.extension = ext;
+    currentSearch.keyword = keyword;
+    currentSearch.mode = mode;
+
+    currentPage = qMax(0, offset / pageSize);
+
+    SearchOptions opt;
+    opt.rootId = currentRootId;
+    opt.extension = ext;
+    opt.keyword = keyword;
+    opt.searchMode = mode;
+
+    totalResultCount = DatabaseManager::instance().getFileCount(opt);
+    renderPage();
+}
+
+void CodeShelf::onSearchExecuted() {
+    onSearchRequested();
+}
+
+void CodeShelf::copyToClipboard(const QString& text) {
     if (text.isEmpty()) {
         return;
     }
 
-    QClipboard* clipboard = QApplication::clipboard();
-    clipboard->setText(text);
-
-    statusBar()->showMessage("클립보드에 복사되었습니다",2000);
-
+    QApplication::clipboard()->setText(text);
+    statusBar()->showMessage("클립보드에 복사되었습니다", 2000);
 }
 void CodeShelf::onOpenDirClicked() {
     QFileInfo fileInfo(currentFilePath);
@@ -982,4 +988,9 @@ void CodeShelf::onOpenDirClicked() {
 }
 
 CodeShelf::~CodeShelf()
-{}
+{
+    if (scanThread && scanThread->isRunning()) {
+        scanThread->quit();
+        scanThread->wait(5000);
+    }
+}

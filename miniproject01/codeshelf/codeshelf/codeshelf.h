@@ -37,9 +37,11 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include <QProcess>
+#include <QThread>
 #include"flowlayout.h"
 #include"CodeHighlighter.h"
 #include"DatabaseManager.h"
+#include"ScanWorker.h"
 
 struct SearchState {
     int rootId;
@@ -65,6 +67,9 @@ private slots:
 
     void onCopyClicked();
     void onOpenDirClicked();
+    void onScanFinished(bool success, int changedCount, int skippedCount);
+    void onScanProgress(int processedCount);
+    void onScanFailed(const QString& message);
 
     QString formatDate(const QString& rawDate);
 
@@ -102,11 +107,10 @@ private:
 
     QString currentRootPath;
     int currentRootId;
-    // 재귀적으로 폴더 훑기
-    bool scanDirRecursive(const QString& path, QTreeWidgetItem* parentItem, const QDir& rootDir, const QHash<QString, QDateTime>& DbFilemap);  // 기준 루트폴더);
-    // insert데이터 저장
-    bool insertFileRecord(const QFileInfo& info, const QString absolutePath, const QHash<QString, QDateTime>& DbFilemap);
     QFileInfo rootInfo;
+    QThread* scanThread = nullptr;
+    ScanWorker* scanWorker = nullptr;
+    bool isScanRunning = false;
 
     // 3분할 영역
     /* 3분할 크기 조절용 경계선 */
@@ -166,7 +170,9 @@ private:
 
     SearchState currentSearch;
     QList<FileItem> cachedResults;
+    int totalResultCount = 0;
 
+    void loadSessionFromDb(const QString& path);
     void renderPage();
 
     // 복사

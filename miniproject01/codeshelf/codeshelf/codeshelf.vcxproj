@@ -69,6 +69,7 @@
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
+      <DisableSpecificWarnings>4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -83,6 +84,7 @@
       <ConformanceMode>true</ConformanceMode>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
+      <DisableSpecificWarnings>4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -95,11 +97,13 @@
     <QtRcc Include="codeshelf.qrc" />
     <QtUic Include="codeshelf.ui" />
     <QtMoc Include="codeshelf.h" />
+    <QtMoc Include="ScanWorker.h" />
     <ClCompile Include="CodeHighlighter.cpp" />
     <ClCompile Include="codeshelf.cpp" />
     <ClCompile Include="DatabaseManager.cpp" />
     <ClCompile Include="flowlayout.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="ScanWorker.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DatabaseManager.h" />
