@@ -70,6 +70,7 @@ private slots:
     void onScanFinished(bool success, int changedCount, int skippedCount);
     void onScanProgress(int processedCount);
     void onScanFailed(const QString& message);
+    void toggleTheme();
 
     QString formatDate(const QString& rawDate);
 
@@ -102,11 +103,12 @@ private:
     QWidget* topBar;
     
     QPushButton* btnSelectRoot = new QPushButton;
-    QPushButton* btnHome;
-    QPushButton* btnSearchToggle;
+    QPushButton* btnThemeToggle = nullptr;
+    QPushButton* btnCopy = nullptr;
+    QPushButton* btnDir = nullptr;
 
     QString currentRootPath;
-    int currentRootId;
+    int currentRootId = 0;
     QFileInfo rootInfo;
     QThread* scanThread = nullptr;
     ScanWorker* scanWorker = nullptr;
@@ -168,12 +170,20 @@ private:
     QString currentFilePath;
     void allTagBtn();
 
-    SearchState currentSearch;
+    SearchState currentSearch{ 0, "", "", "title" };
     QList<FileItem> cachedResults;
     int totalResultCount = 0;
 
     void loadSessionFromDb(const QString& path);
     void renderPage();
+    void populateCategoryTreeFromDb();
+    void applyTheme();
+    QString actionButtonStyle() const;
+    QString pageButtonStyle() const;
+    QString itemCardStyle() const;
+    QString codePreviewStyle() const;
+    QString tagChipStyle() const;
+    bool isDarkTheme = true;
 
     // 복사
     void copyToClipboard(const QString& text);

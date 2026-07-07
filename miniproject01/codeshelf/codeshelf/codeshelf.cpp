@@ -1,5 +1,7 @@
 #include "codeshelf.h"
 
+#include <algorithm>
+
 CodeShelf::CodeShelf(QWidget *parent)
     : QMainWindow(parent)
 {
@@ -37,10 +39,10 @@ CodeShelf::CodeShelf(QWidget *parent)
 
     // [5] 시그널/슬롯 연결
     connect(btnSelectRoot, &QPushButton::clicked, this, &CodeShelf::onSelectRootFolder);
-    connect(btnHome, &QPushButton::clicked, this, &CodeShelf::showHome);
-    connect(btnSearchToggle, &QPushButton::clicked, this, &CodeShelf::toggleSearchMode);
+    connect(btnThemeToggle, &QPushButton::clicked, this, &CodeShelf::toggleTheme);
     connect(categoryTree, &QTreeWidget::itemClicked, this, &CodeShelf::onTreeItemClicked);
 
+    applyTheme();
     resize(1200, 800);
 
 
@@ -57,19 +59,13 @@ void CodeShelf::setupTopBar() {
 
     QLabel* logo = new QLabel("CodeShelf");
 
-    btnHome = new QPushButton("홈");
-    btnSearchToggle = new QPushButton("검색/관리");
-
     logo->setStyleSheet("font-weight: bold; font-size: 18px; margin-left:10px;");
 
-    QLabel* userInfo = new QLabel("user 1234 👤");
+    btnThemeToggle = new QPushButton("일반 모드");
 
     topLayout->addWidget(logo);
-    topLayout->addStretch();    // 중간 여백
-    topLayout->addWidget(btnHome);
-    topLayout->addWidget(btnSearchToggle);
     topLayout->addStretch();    // 우측 여백
-    topLayout->addWidget(userInfo);
+    topLayout->addWidget(btnThemeToggle);
 
     mainLayout->addWidget(topBar);
 }
@@ -91,12 +87,7 @@ void CodeShelf::loadSessionFromDb(const QString& path) {
 
     mainStackedWidget->setCurrentWidget(mainSplitter);
 
-    categoryTree->clear();
-    QTreeWidgetItem* rootItem = new QTreeWidgetItem(categoryTree);
-    rootItem->setText(0, QFileInfo(currentRootPath).fileName());
-    rootItem->setData(0, Qt::UserRole, currentRootPath);
-    rootItem->setExpanded(true);
-
+    populateCategoryTreeFromDb();
     loadTagsFromDb();
     filterBySearch("", "", "title");
 }
@@ -201,13 +192,8 @@ void CodeShelf::onScanFinished(bool success, int changedCount, int skippedCount)
     btnSelectRoot->setEnabled(true);
     QApplication::restoreOverrideCursor();
 
-    categoryTree->clear();
-    QTreeWidgetItem* rootItem = new QTreeWidgetItem(categoryTree);
-    rootItem->setText(0, QFileInfo(currentRootPath).fileName());
-    rootItem->setData(0, Qt::UserRole, currentRootPath);
-    rootItem->setExpanded(true);
-
     if (success) {
+        populateCategoryTreeFromDb();
         loadTagsFromDb();
         filterBySearch("", "", "title");
         statusBar()->showMessage(
@@ -364,7 +350,7 @@ void CodeShelf::updatePagination(const QString& ext, const QString& keyword, con
 
         paginationBar->addWidget(pageBtn);
 
-        pageBtn->setStyleSheet("background-color: #54535E; color:white;");
+        pageBtn->setStyleSheet(pageButtonStyle());
     }
 
     // (6) [다음] 페이지 버튼 생성
@@ -377,8 +363,8 @@ void CodeShelf::updatePagination(const QString& ext, const QString& keyword, con
         });
     paginationBar->addWidget(nextBtn);
 
-    prevBtn->setStyleSheet("background-color: #54535E; color:white;");
-    nextBtn->setStyleSheet("background-color: #54535E; color:white;");
+    prevBtn->setStyleSheet(pageButtonStyle());
+    nextBtn->setStyleSheet(pageButtonStyle());
 }
 
 void CodeShelf::clearCenterLayout() {
@@ -442,9 +428,11 @@ void CodeShelf::setupDashboard() {
 void CodeShelf::setupManagementPage() {
     // [page 1] 3분할 관리 화면
     mainSplitter = new QSplitter(Qt::Horizontal);
+    mainSplitter->setObjectName("mainSplitter");
 
     // left : 카테고리 트리, 태그
     leftWidget = new QWidget();
+    leftWidget->setObjectName("leftPanel");
     leftLayout = new QVBoxLayout(leftWidget);
     leftLayout->setContentsMargins(10, 10, 10, 10); // 전체 여백 추가
     leftLayout->setSpacing(10);   // 아이템들 사이 간격 10px고정
@@ -493,6 +481,7 @@ void CodeShelf::setupManagementPage() {
 
     // 스크롤
     QScrollArea* tagScrollArea = new QScrollArea();
+    tagScrollArea->setObjectName("tagScrollArea");
     tagScrollArea->setWidgetResizable(true);
     tagScrollArea->setFrameShape(QFrame::NoFrame);
     tagScrollArea->setStyleSheet("background-color: #54535E;");
@@ -515,6 +504,7 @@ void CodeShelf::setupManagementPage() {
 
     // center : 리스트, 검색창
     QWidget* centerWidget = new QWidget();
+    centerWidget->setObjectName("contentPanel");
     centerMainLayout = new QVBoxLayout(centerWidget);
     centerWidget->setStyleSheet("background-color:#282828");
 
@@ -536,6 +526,7 @@ void CodeShelf::setupManagementPage() {
 
     // 하단 바(페이지 버튼이 들어갈 곳)
     QWidget* bottomBarWidget = new QWidget();
+    bottomBarWidget->setObjectName("paginationPanel");
     bottomBarWidget->setFixedHeight(50);
 
     paginationBar = new QHBoxLayout(bottomBarWidget);
@@ -546,12 +537,14 @@ void CodeShelf::setupManagementPage() {
 
     // right : 미리보기 및 버튼
     QWidget* rightWidget = new QWidget();
+    rightWidget->setObjectName("previewPanel");
     QVBoxLayout* rightMainLayout = new QVBoxLayout(rightWidget);
     rightMainLayout->setContentsMargins(0, 0, 0, 0);
     rightMainLayout->setSpacing(0);
 
     // right-T 위쪽 위젯 (정보 영역)
     QWidget* infoWidget = new QWidget();
+    infoWidget->setObjectName("fileInfoPanel");
     infoWidget->setStyleSheet("background-color: #ffffff; border-bottom: 1px solid #ddd;");
     QVBoxLayout* infoLayout = new QVBoxLayout(infoWidget);  // 정보들도 위아래로 쌓을꺼니깐
     infoLayout->setContentsMargins(15, 15, 15, 15);
@@ -593,26 +586,18 @@ void CodeShelf::setupManagementPage() {
 
     // right-B 아래쪽 위젯(코드 영역)
     codePreview = new QTextEdit();
-    codePreview->setStyleSheet(
-        "QTextEdit {"
-        "   background-color: #1e1e1e; color: #d4d4d4;"
-        "   font-family: 'Consolas', 'Monospace';"
-        "   font-size: 10pt; border: none; padding: 11px;"
-        "}"
-    );
+    codePreview->setStyleSheet(codePreviewStyle());
     new CodeHighlighter(codePreview->document());
     codePreview->setReadOnly(true); // 수정불가하게
     highlighter = new CodeHighlighter(codePreview->document());
 
     // 아래 버튼
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    QPushButton* btnCopy = new QPushButton("코드 복사");
-    QPushButton* btnDir = new QPushButton("폴더 열기");
+    btnCopy = new QPushButton("코드 복사");
+    btnDir = new QPushButton("폴더 열기");
 
-    QString btnStyle = "color:white;";
-
-    btnCopy->setStyleSheet(btnStyle);
-    btnDir->setStyleSheet(btnStyle);
+    btnCopy->setStyleSheet(actionButtonStyle());
+    btnDir->setStyleSheet(actionButtonStyle());
 
     btnLayout->addWidget(btnCopy);
     btnLayout->addWidget(btnDir);
@@ -673,7 +658,7 @@ void CodeShelf::addItem(QVBoxLayout* targetLayout, QString name, QString date, Q
     // 4. 아래쪽줄 구성(tag)
     QHBoxLayout* ctagLayout = new QHBoxLayout();
     QLabel* tag1 = new QLabel("#"+tag);
-    tag1->setStyleSheet("background: #FFD864; border-radius: 5px; padding: 2px 2px 4px 4px; color:black;");
+    tag1->setStyleSheet(tagChipStyle());
     ctagLayout->addWidget(tag1);
     ctagLayout->addStretch();   // 왼쪽 태그정렬
     tag1->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -692,11 +677,7 @@ void CodeShelf::addItem(QVBoxLayout* targetLayout, QString name, QString date, Q
     itemWidget->setMouseTracking(true);     // 마우스 추적 활성화
     itemWidget->setCursor(Qt::PointingHandCursor);      // 마우스를 올리면 손가락 모양
     
-    itemWidget->setStyleSheet(
-        "QWidget { background-color: #54535E; border: 1px solid #575757; border-radius: 5px; color:white }"
-        "QWidget:hover { background-color: #302F36; border: 1px solid white; }"
-        "QLabel { border: none; background: transparent; }" // 자식 라벨들의 테두리와 배경 제거
-    );
+    itemWidget->setStyleSheet(itemCardStyle());
 
     // 완성된 위젯을 전체 센터 레이아웃에 추가
     targetLayout->insertWidget(targetLayout->count() - 1, itemWidget);
@@ -763,6 +744,72 @@ void CodeShelf::renderPage() {
     updatePagination(currentSearch.extension, currentSearch.keyword, currentSearch.mode);
 }
 
+void CodeShelf::populateCategoryTreeFromDb() {
+    if (!categoryTree || currentRootId <= 0 || currentRootPath.isEmpty()) {
+        return;
+    }
+
+    categoryTree->clear();
+
+    const QString rootName = QFileInfo(currentRootPath).fileName().isEmpty()
+        ? currentRootPath
+        : QFileInfo(currentRootPath).fileName();
+
+    QTreeWidgetItem* rootItem = new QTreeWidgetItem(categoryTree);
+    rootItem->setText(0, rootName);
+    rootItem->setData(0, Qt::UserRole, currentRootPath);
+    rootItem->setExpanded(true);
+
+    const QHash<QString, QDateTime> fileMap =
+        DatabaseManager::instance().getFileModificationMap(currentRootId);
+    QStringList paths = fileMap.keys();
+    paths.sort(Qt::CaseInsensitive);
+
+    QHash<QString, QTreeWidgetItem*> folderItems;
+    folderItems.insert(QString(), rootItem);
+
+    const QDir rootDir(currentRootPath);
+    for (const QString& rawPath : paths) {
+        const QString filePath = DatabaseManager::normalizePath(rawPath);
+        QString relativePath = rootDir.relativeFilePath(filePath);
+        relativePath = QDir::fromNativeSeparators(relativePath);
+
+        if (relativePath.startsWith("../")) {
+            continue;
+        }
+
+        const QStringList parts = relativePath.split('/', Qt::SkipEmptyParts);
+        if (parts.isEmpty()) {
+            continue;
+        }
+
+        QTreeWidgetItem* parentItem = rootItem;
+        QString folderKey;
+
+        for (int i = 0; i < parts.size(); ++i) {
+            const bool isFile = (i == parts.size() - 1);
+            const QString part = parts.at(i);
+
+            if (isFile) {
+                QTreeWidgetItem* fileItem = new QTreeWidgetItem(parentItem);
+                fileItem->setText(0, part);
+                fileItem->setData(0, Qt::UserRole, filePath);
+                continue;
+            }
+
+            folderKey = folderKey.isEmpty() ? part : folderKey + "/" + part;
+            if (!folderItems.contains(folderKey)) {
+                QTreeWidgetItem* folderItem = new QTreeWidgetItem(parentItem);
+                folderItem->setText(0, part);
+                folderItem->setExpanded(false);
+                folderItems.insert(folderKey, folderItem);
+            }
+
+            parentItem = folderItems.value(folderKey);
+        }
+    }
+}
+
 // 클릭 감지(센터 아이템)
 bool CodeShelf::eventFilter(QObject* obj, QEvent* event) {
     if (event->type() == QEvent::MouseButtonRelease) {
@@ -820,12 +867,7 @@ void CodeShelf::showDetail(const QString& name, const QString& path) {
         QLabel* tagChip = new QLabel("#" + ext);
 
         // 스타일 시트
-        tagChip->setStyleSheet(
-            "QLabel {"
-            "  background-color: #FFD864; color: black; border: 1px solid #dadce0;"
-            "  border-radius: 12px; padding: 4px 12px; font-size: 11px; font-weight: 500;"
-            "}"
-        );
+        tagChip->setStyleSheet(tagChipStyle());
         tagLayout->addWidget(tagChip);
     }
     tagLayout->addStretch();
@@ -859,20 +901,162 @@ void CodeShelf::applyEditorTheme() {
     QFontMetrics metrics(codeFont);
     codePreview->setTabStopDistance(tabStop * metrics.horizontalAdvance(' '));
 
-    // 다크 테마 스타일 시트 적용
-    codePreview->setStyleSheet(
-        "QTextEdit {"
-        "   background-color: #1e1e1e; color: #d4d4d4;"
-        "   border: none; padding: 10px;"
-        "}"
-        "QScrollBar:vertical {"
-        "   background: #252526; width: 12px;"
-        "}"
-        "QScrollBar::handle:vertical { background: #424242; min-height: 20px; }"
-        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
-    );
+    codePreview->setStyleSheet(codePreviewStyle());
 }
 
+
+void CodeShelf::toggleTheme() {
+    isDarkTheme = !isDarkTheme;
+    applyTheme();
+    if (currentSearch.rootId > 0) {
+        renderPage();
+    }
+}
+
+void CodeShelf::applyTheme() {
+    if (!topBar || !mainStackedWidget || !btnThemeToggle) return;
+
+    if (isDarkTheme) {
+        topBar->setStyleSheet("background-color: #333; color:white;");
+        mainStackedWidget->setStyleSheet(
+            "QStackedWidget { background-color:#333; color:white; }"
+            "#leftPanel { background-color: #3B3A42; color:white; }"
+            "#contentPanel { background-color:#282828; }"
+            "#previewPanel { background-color:#282828; color:white; }"
+            "#fileInfoPanel { background-color:#54535E; color:white; }"
+            "#tagScrollArea { background-color:#54535E; border:none; }"
+            "#paginationPanel { background-color:#282828; }"
+            "QTreeWidget, QListWidget { background: transparent; color:white; border:none; }"
+            "QLabel { color: white; }"
+            "QLineEdit, QComboBox { background-color:#3c3c3c; color:white; border:1px solid #555; padding:5px; }"
+            "QPushButton { background-color:#54535E; color:white; border:1px solid #666; border-radius:4px; padding:6px; }"
+            "QPushButton:hover { background-color:#62616b; }"
+        );
+        btnThemeToggle->setText("일반 모드");
+        btnThemeToggle->setStyleSheet("background-color:#54535E; color:white; border:1px solid #666; border-radius:4px; padding:6px;");
+        btnSelectRoot->setStyleSheet("background-color:#54535E; color:white; border:1px solid #666; border-radius:4px; padding:6px;");
+
+        if (QWidget* panel = mainStackedWidget->findChild<QWidget*>("leftPanel")) {
+            panel->setStyleSheet("background-color: #3B3A42; color:white;");
+        }
+        if (QWidget* panel = mainStackedWidget->findChild<QWidget*>("contentPanel")) {
+            panel->setStyleSheet("background-color:#282828;");
+        }
+        if (QWidget* panel = mainStackedWidget->findChild<QWidget*>("fileInfoPanel")) {
+            panel->setStyleSheet("background-color:#54535E; color:white;");
+        }
+        if (QScrollArea* area = mainStackedWidget->findChild<QScrollArea*>("tagScrollArea")) {
+            area->setStyleSheet("background-color:#54535E; border:none;");
+        }
+        if (searchFilterCombo) {
+            searchFilterCombo->setStyleSheet("padding:5px; background-color: #3c3c3c; color: white;");
+        }
+        if (searchEdit) {
+            searchEdit->setStyleSheet("padding:5px; background-color: #3c3c3c; color:white; border:1px solid #555;");
+        }
+    }
+    else {
+        topBar->setStyleSheet("background-color: #6a7e74; color:white;");
+        mainStackedWidget->setStyleSheet(
+            "QStackedWidget { background-color:#f8f7f5; color:#1f2a24; }"
+            "#leftPanel { background-color:#efede8; color:#1f2a24; }"
+            "#contentPanel { background-color:#f8f7f5; }"
+            "#previewPanel { background-color:#f8f7f5; color:#1f2a24; }"
+            "#fileInfoPanel { background-color:#6a7e74; color:white; }"
+            "#tagScrollArea { background-color:#f1f0ec; border:none; }"
+            "#paginationPanel { background-color:#f8f7f5; }"
+            "QTreeWidget, QListWidget { background: transparent; color:#1f2a24; border:none; }"
+            "QLabel { color:#1f2a24; }"
+            "#fileInfoPanel QLabel { color:white; }"
+            "QLineEdit, QComboBox { background-color:#fffdf9; color:#1f2a24; border:1px solid #d8d3ca; padding:5px; }"
+            "QPushButton { background-color:#6a7e74; color:white; border:1px solid #5b6d64; border-radius:4px; padding:6px; }"
+            "QPushButton:hover { background-color:#5b6d64; }"
+        );
+        btnThemeToggle->setText("다크 모드");
+        btnThemeToggle->setStyleSheet("background-color:#fffdf9; color:#6a7e74; border:1px solid #e3ded5; border-radius:4px; padding:6px;");
+        btnSelectRoot->setStyleSheet("background-color:#6a7e74; color:white; border:1px solid #5b6d64; border-radius:4px; padding:6px;");
+
+        if (QWidget* panel = mainStackedWidget->findChild<QWidget*>("leftPanel")) {
+            panel->setStyleSheet("background-color:#efede8; color:#1f2a24;");
+        }
+        if (QWidget* panel = mainStackedWidget->findChild<QWidget*>("contentPanel")) {
+            panel->setStyleSheet("background-color:#f8f7f5;");
+        }
+        if (QWidget* panel = mainStackedWidget->findChild<QWidget*>("fileInfoPanel")) {
+            panel->setStyleSheet("background-color:#6a7e74; color:white;");
+        }
+        if (QScrollArea* area = mainStackedWidget->findChild<QScrollArea*>("tagScrollArea")) {
+            area->setStyleSheet("background-color:#f1f0ec; border:none;");
+        }
+        if (searchFilterCombo) {
+            searchFilterCombo->setStyleSheet("padding:5px; background-color:#fffdf9; color:#1f2a24; border:1px solid #d8d3ca;");
+        }
+        if (searchEdit) {
+            searchEdit->setStyleSheet("padding:5px; background-color:#fffdf9; color:#1f2a24; border:1px solid #d8d3ca;");
+        }
+    }
+
+    if (codePreview) {
+        codePreview->setStyleSheet(codePreviewStyle());
+    }
+    if (btnCopy) {
+        btnCopy->setStyleSheet(actionButtonStyle());
+    }
+    if (btnDir) {
+        btnDir->setStyleSheet(actionButtonStyle());
+    }
+}
+
+QString CodeShelf::actionButtonStyle() const {
+    if (isDarkTheme) {
+        return "background-color:#54535E; color:white; border:1px solid #666; border-radius:4px; padding:8px;";
+    }
+    return "background-color:#6a7e74; color:white; border:1px solid #5b6d64; border-radius:4px; padding:8px;";
+}
+
+QString CodeShelf::pageButtonStyle() const {
+    if (isDarkTheme) {
+        return "background-color: #54535E; color:white; border:1px solid #666; border-radius:4px;";
+    }
+    return "background-color: #6a7e74; color:white; border:1px solid #5b6d64; border-radius:4px;";
+}
+
+QString CodeShelf::itemCardStyle() const {
+    if (isDarkTheme) {
+        return
+            "QWidget { background-color: #54535E; border: 1px solid #575757; border-radius: 5px; color:white }"
+            "QWidget:hover { background-color: #302F36; border: 1px solid white; }"
+            "QLabel { border: none; background: transparent; }";
+    }
+    return
+        "QWidget { background-color: #fffdf9; border: 1px solid #e3ded5; border-radius: 5px; color:#1f2a24 }"
+        "QWidget:hover { background-color: #f1f0ec; border: 1px solid #6a7e74; }"
+        "QLabel { border: none; background: transparent; }";
+}
+
+QString CodeShelf::codePreviewStyle() const {
+    if (isDarkTheme) {
+        return
+            "QTextEdit { background-color: #1e1e1e; color: #d4d4d4;"
+            "font-family: 'Consolas', 'Monospace'; font-size: 10pt; border: none; padding: 11px; }"
+            "QScrollBar:vertical { background: #252526; width: 12px; }"
+            "QScrollBar::handle:vertical { background: #424242; min-height: 20px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }";
+    }
+    return
+        "QTextEdit { background-color: #fffdf9; color: #1f2a24;"
+        "font-family: 'Consolas', 'Monospace'; font-size: 10pt; border: none; padding: 11px; }"
+        "QScrollBar:vertical { background: #f1f0ec; width: 12px; }"
+        "QScrollBar::handle:vertical { background: #6a7e74; min-height: 20px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }";
+}
+
+QString CodeShelf::tagChipStyle() const {
+    if (isDarkTheme) {
+        return "background: #FFD864; border-radius: 5px; padding: 2px 6px 4px 6px; color:black;";
+    }
+    return "background: #f1f0ec; border: 1px solid #6a7e74; border-radius: 5px; padding: 2px 6px 4px 6px; color:#1f2a24;";
+}
 
 void CodeShelf::showHome() {
 }
